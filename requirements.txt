@@ -1,3 +1,6 @@
 langchain-openai
 langchain-text-splitters
 sentence-transformers
+langchain-community
+unstructured
+pdfminer
