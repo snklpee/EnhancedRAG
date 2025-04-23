@@ -5,3 +5,4 @@ langchain-community
 unstructured
 pdfminer
 pydantic-settings
+langchain-huggingface

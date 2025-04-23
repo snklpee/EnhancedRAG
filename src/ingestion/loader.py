@@ -17,10 +17,8 @@ class DocumentLoader:
     def __init__(self):
         self.base_context_dir = Path(settings.CONTEXT_DIR)
         
-    def count_processed(result):
-        return len(result)
 
-    @track_metrics(count_processed)
+    @track_metrics(lambda docs: len(docs))
     def load_documents(
         self,
         subdir: str,
