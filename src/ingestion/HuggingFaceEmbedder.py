@@ -42,3 +42,6 @@ class HuggingFaceEmbedder(metaclass=_EmbedderSingletonMeta):
         """
         vector = self._client.embed_query(text)
         return vector, len(vector)
+    
+         
+        

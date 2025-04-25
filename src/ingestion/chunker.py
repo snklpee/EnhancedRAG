@@ -1,10 +1,10 @@
 from typing import List, Tuple, Union
+
 from transformers import AutoTokenizer
 from langchain_text_splitters import SentenceTransformersTokenTextSplitter
 from langchain_core.documents import Document
 
 from src.utils.metrics import track_metrics
-
 
 class _TokenizerSingletonMeta(type):
     """
@@ -49,8 +49,7 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
             chunk_size=chunk_size,
             chunk_overlap=chunk_overlap,
         )
-        # Running total of tokens processed
-        self.total_token_count = 0
+        
         
         
         
@@ -78,19 +77,20 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
             else:
                 chunks: List[Document]
         """
+        self.total_token_count = 0
         all_chunks: List[Document] = []
         for doc in documents:
             # split into text chunks
             texts = self.splitter.split_text(doc.page_content)
             for idx, chunk_text in enumerate(texts):
                 chunk_text_token_count = self.get_token_count(chunk_text)
-                self.token_count += chunk_text_token_count
+                self.total_token_count += chunk_text_token_count
                 md = dict(doc.metadata)  
                 md["chunk_index"],md["tokenizer"],md["tokens"] = idx, self.tokenizer_name, chunk_text_token_count
                 md.setdefault("source", "")
                 all_chunks.append(Document(page_content=chunk_text, metadata=md))
 
         if return_token_count:
-            return all_chunks, self.token_count
+            return all_chunks, self.total_token_count
         
         return all_chunks, 0

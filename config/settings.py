@@ -1,25 +1,18 @@
 # config/settings.py
 from pydantic_settings import BaseSettings
-from pydantic import Field
+from pydantic import Field, SecretStr
+from pathlib import Path
 
 class Settings(BaseSettings):
     # directories
     CONTEXT_DIR: str = Field("context", env="ENH_RAG_CONTEXT_DIR")
-
-    # # embedding
-    # EMBEDDING_MODEL: str = Field(..., env="EMB_MODEL_NAME")
-
-    # # vector db
-    # VECTOR_DB: str = Field("faiss", env="VECTOR_DB")
-    # VECTOR_INDEX_DIR: str = Field("faiss_indexes", env="VECTOR_INDEX_DIR")
-
-    # # LLM
-    # LLM_MODEL: str = Field(..., env="LLM_MODEL_NAME")
-    # LLM_TEMPERATURE: float = Field(0.2, env="LLM_TEMPERATURE")
-    # MAX_OUTPUT_TOKENS: int = Field(512, env="MAX_OUTPUT_TOKENS")
+    
+    # OPENAI_API_KEY: SecretStr = Field(..., env="OPENAI_API_KEY")
+    HF_TOKEN: SecretStr = Field(..., env="HF_TOKEN")
 
     class Config:
-        env_file = ".env"
+        env_file = str(Path(__file__).parent / ".env")
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 settings = Settings()
