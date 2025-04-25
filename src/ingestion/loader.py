@@ -18,7 +18,8 @@ from src.utils.metrics import track_metrics
 class DocumentLoader:
     def __init__(self):
         self.base_context_dir = Path(settings.CONTEXT_DIR)
-        
+    
+    @track_metrics(lambda filenames: len(filenames),target="outputs")    
     def list_filenames(
         self,
         base_dir: str,
@@ -59,7 +60,7 @@ class DocumentLoader:
         return filenames
 
         
-    @track_metrics(lambda docs: len(docs))
+    @track_metrics(lambda docs: len(docs),target="outputs")
     def load_directory(
         self,
         subdir: str,
@@ -122,7 +123,7 @@ class DocumentLoader:
             
         return all_docs
     
-        
+    @track_metrics(lambda docs: len(docs),target="outputs")
     def load_documents(
         self,
         subdir: str,

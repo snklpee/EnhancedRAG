@@ -8,15 +8,15 @@ from src.utils.metrics import track_metrics
 
 class _TokenizerSingletonMeta(type):
     """
-    Metaclass that ensures only one instance per (class, hf_tokenizer_name) is ever created.
+    Metaclass that ensures only one instance per (class, hf_embedding_model) is ever created.
     """
     _instances: dict[tuple[type, str], object] = {}
 
-    def __call__(cls, hf_tokenizer_name: str, *args, **kwargs):
-        key = (cls, hf_tokenizer_name)
+    def __call__(cls, hf_embedding_model: str, *args, **kwargs):
+        key = (cls, hf_embedding_model)
         if key not in cls._instances:
-            # first time we see this hf_tokenizer_name → create & cache
-            cls._instances[key] = super().__call__(hf_tokenizer_name, *args, **kwargs)
+            # first time we see this hf_embedding_model → create & cache
+            cls._instances[key] = super().__call__(hf_embedding_model, *args, **kwargs)
         return cls._instances[key]
 
 
@@ -28,7 +28,7 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
 
     def __init__(
         self,
-        hf_tokenizer_name: str,
+        hf_embedding_model: str,
         chunk_size: int = 300,
         chunk_overlap: int = 80,
     ):
@@ -36,11 +36,11 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
         Initialize the Chunker with a single HF tokenizer and a token-based text splitter.
         
         Args:
-            hf_tokenizer_name (str): Name or path of the HuggingFace tokenizer.
+            hf_embedding_model (str): Name or path of the HuggingFace Model to get the tokenizer for.
             chunk_size (int): Maximum number of tokens per chunk.
             chunk_overlap (int): Number of overlapping tokens between chunks.
         """
-        self.tokenizer_name = hf_tokenizer_name
+        self.tokenizer_name = hf_embedding_model
         # Load and keep one tokenizer instance
         self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
         # Create one splitter instance
@@ -50,20 +50,30 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
             chunk_overlap=chunk_overlap,
         )
         
-        
-        
-        
+    @property
+    def tokenizer_instance(self)->AutoTokenizer:
+        return self.tokenizer
+    
+    @property
+    def splitter_instance(self)-> SentenceTransformersTokenTextSplitter:
+        return self.splitter
+                     
     def get_token_count(self,text:str)->int:
         token_count = self.splitter.count_tokens(text=text)
         return token_count
+    
+    @track_metrics(lambda self, docs: len(docs), target="inputs")   
+    def get_docs_token_count(self, docs: List[Document])->int:
+        doc_token_count = 0
+        for doc in docs:
+            doc_token_count += self.get_token_count(doc.page_content)
+        return doc_token_count    
         
-        
-    @track_metrics(lambda chunks, token_count: len(chunks))
+    @track_metrics(lambda chunks: len(chunks), target="outputs")
     def chunk_documents(
         self,
-        documents: List[Document],
-        return_token_count: bool = True
-    ) -> Union[List[Document], Tuple[List[Document], int]]:
+        documents: List[Document]
+        ) -> List[Document]:
         """
         Split a list of Documents into smaller Documents (chunks), preserving metadata.
 
@@ -77,20 +87,16 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
             else:
                 chunks: List[Document]
         """
-        self.total_token_count = 0
         all_chunks: List[Document] = []
         for doc in documents:
             # split into text chunks
             texts = self.splitter.split_text(doc.page_content)
             for idx, chunk_text in enumerate(texts):
                 chunk_text_token_count = self.get_token_count(chunk_text)
-                self.total_token_count += chunk_text_token_count
                 md = dict(doc.metadata)  
                 md["chunk_index"],md["tokenizer"],md["tokens"] = idx, self.tokenizer_name, chunk_text_token_count
                 md.setdefault("source", "")
                 all_chunks.append(Document(page_content=chunk_text, metadata=md))
-
-        if return_token_count:
-            return all_chunks, self.total_token_count
         
-        return all_chunks, 0
+        return all_chunks
+   

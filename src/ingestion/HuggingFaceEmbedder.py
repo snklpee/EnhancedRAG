@@ -1,47 +1,42 @@
-from typing import Tuple
+# src/ingestion/HuggingFaceEmbedder.py
+
+from typing import List, Sequence
 from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_core.embeddings.embeddings import Embeddings
 from src.utils.metrics import track_metrics
-
-class _EmbedderSingletonMeta(type):
-    """
-    Metaclass that ensures only one instance per (class, model_name) is ever created.
-    """
-    _instances: dict[tuple[type, str], object] = {}
-
-    def __call__(cls, model_name: str, *args, **kwargs):
-        key = (cls, model_name)
-        if key not in cls._instances:
-            # first time we see this model_name → create & cache
-            cls._instances[key] = super().__call__(model_name, *args, **kwargs)
-        return cls._instances[key]
+from src.ingestion.chunker import DocumentChunker
 
 
-class HuggingFaceEmbedder(metaclass=_EmbedderSingletonMeta):
+class HuggingFaceEmbedder(Embeddings):
     """
-    Singleton-backed wrapper around HuggingFaceEmbeddings.
-    
-    Usage:
-        embedder = HuggingFaceEmbedder("sentence-transformers/all-mpnet-base-v2")
-        vec, dim = embedder.embed_query("hello world")
-        
-        # Later on, reusing the same model string:
-        again = HuggingFaceEmbedder("sentence-transformers/all-mpnet-base-v2")
-        # again is the same object as embedder
+    Composition-based wrapper around HuggingFaceEmbeddings.
+
+    - Contains a single HuggingFaceEmbeddings instance per model_name.
+    - Implements embed_documents & embed_query as required by LangChain.
+    - Tracks metrics on inputs (token count) and outputs (vector dimension).
     """
+
+    # cache of clients to ensure one-per-model
+    _clients: dict[str, HuggingFaceEmbeddings] = {}
 
     def __init__(self, model_name: str):
         self.model_name = model_name
-        # instantiate the heavy HF object only once per model_name
-        self._client = HuggingFaceEmbeddings(model_name=model_name)
-        
-        
-    @track_metrics(lambda txt, vec: print("embedding dimension",vec))
-    def embed_query(self, text: str) -> Tuple[list[float], int]:
-        """
-        Embed a single piece of text and return (vector, dimension).
-        """
-        vector = self._client.embed_query(text)
-        return vector, len(vector)
-    
-         
-        
+        if model_name not in self._clients:
+            self._clients[model_name] = HuggingFaceEmbeddings(model_name=model_name)
+        self._client = self._clients[model_name]
+
+    def _token_count(self, texts):
+        chunker = DocumentChunker(hf_embedding_model=self.model_name)
+        if isinstance(texts, str):
+            return chunker.get_token_count(text=texts)
+        return sum(chunker.get_token_count(text=t) for t in texts)
+
+    @track_metrics(_token_count, target="inputs")
+    def embed_query(self, text: str) -> List[float]:
+        vec = self._client.embed_query(text)
+        return vec
+
+    @track_metrics(_token_count, target="inputs")
+    def embed_documents(self, texts: Sequence[str]) -> List[List[float]]:
+        vecs = self._client.embed_documents(list(texts))
+        return vecs

@@ -11,8 +11,5 @@ context/
 test.ipynb
 test.py
 
-# Vector stores (if you want to keep tree but ignore contents)
-src/ingestion/vector_stores/
-
 # Ignore all __pycache__ directories and their contents, wherever they are
 **/__pycache__/
