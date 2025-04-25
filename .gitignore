@@ -1,7 +1,18 @@
-.venv
+# Virtual environment
+.venv/
+
+# Env file in config
 config/.env
-context
-**/__pycache__/
-src/ingestion/vector_stores
+
+# Context data
+context/
+
+# Jupyter and test files
 test.ipynb
 test.py
+
+# Vector stores (if you want to keep tree but ignore contents)
+src/ingestion/vector_stores/
+
+# Ignore all __pycache__ directories and their contents, wherever they are
+**/__pycache__/
