@@ -40,8 +40,9 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
             chunk_size (int): Maximum number of tokens per chunk.
             chunk_overlap (int): Number of overlapping tokens between chunks.
         """
+        self.tokenizer_name = hf_tokenizer_name
         # Load and keep one tokenizer instance
-        self.tokenizer = AutoTokenizer.from_pretrained(hf_tokenizer_name)
+        self.tokenizer = AutoTokenizer.from_pretrained(self.tokenizer_name)
         # Create one splitter instance
         self.splitter = SentenceTransformersTokenTextSplitter.from_huggingface_tokenizer(
             tokenizer=self.tokenizer,
@@ -49,9 +50,15 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
             chunk_overlap=chunk_overlap,
         )
         # Running total of tokens processed
-        self.token_count = 0
-
-
+        self.total_token_count = 0
+        
+        
+        
+    def get_token_count(self,text:str)->int:
+        token_count = self.splitter.count_tokens(text=text)
+        return token_count
+        
+        
     @track_metrics(lambda chunks, token_count: len(chunks))
     def chunk_documents(
         self,
@@ -73,14 +80,13 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
         """
         all_chunks: List[Document] = []
         for doc in documents:
-            # split into text chunkschunks
+            # split into text chunks
             texts = self.splitter.split_text(doc.page_content)
             for idx, chunk_text in enumerate(texts):
-                
-                self.token_count += self.splitter.count_tokens(text=chunk_text)
-                
+                chunk_text_token_count = self.get_token_count(chunk_text)
+                self.token_count += chunk_text_token_count
                 md = dict(doc.metadata)  
-                md["chunk_index"] = idx
+                md["chunk_index"],md["tokenizer"],md["tokens"] = idx, self.tokenizer_name, chunk_text_token_count
                 md.setdefault("source", "")
                 all_chunks.append(Document(page_content=chunk_text, metadata=md))
 

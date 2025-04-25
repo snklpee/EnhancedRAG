@@ -2,3 +2,5 @@
 config/.env
 context
 **/__pycache__/
+src/ingestion/vector_stores
+test.ipynb

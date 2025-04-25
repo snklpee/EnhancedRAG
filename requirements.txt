@@ -6,3 +6,4 @@ unstructured
 pdfminer
 pydantic-settings
 langchain-huggingface
+faiss-cpu

@@ -4,7 +4,7 @@ from src.ingestion.HuggingFaceEmbedder import HuggingFaceEmbedder
 
 loader = DocumentLoader()
 
-docs = loader.load_documents("pdfs")
+docs = loader.load_directory("pdfs")
 # print(type(docs[0].page_content))
 
 chunker = DocumentChunker(
@@ -14,6 +14,7 @@ chunker = DocumentChunker(
 )
 
 chunks, token_count = chunker.chunk_documents(docs)
+print(chunks[0].metadata)
 print("Total chunks produced: ", len(chunks))
 print(len(chunks)," chunks worth ",token_count," tokens")
 print("data type of chunks",type(chunks[0]))
