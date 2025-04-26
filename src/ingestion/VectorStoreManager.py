@@ -11,7 +11,7 @@ from langchain_community.vectorstores import FAISS
 from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_core.documents import Document
 from src.utils.metrics import track_metrics
-from config.settings import FAISS_INDEXES
+from config.settings import settings
 
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO)
@@ -36,22 +36,19 @@ class VectorStoreManager:
         self.embedding_function = embedding_function
         self.index_name = index_name
         self.distance_strategy = distance_strategy
-        self.folder_path = FAISS_INDEXES
+        self.folder_path = settings.FAISS_INDEXES
         self.store: Optional[FAISS] = None
 
     def _ensure_store(self):
         if self.store is None:
             raise RuntimeError("Vector store not initialized; call create_index/from_texts/load_local first.")
 
-    @track_metrics(lambda docs: len(docs), target="inputs")
-    def create_index(self, dim: int) -> None:
+    def create_index(self) -> None:
         """
         Create a fresh FAISS index in memory.
-
-        Args:
-            dim: Embedding vector dimension.
         """
         try:
+            dim = len(self.embedding_function.embed_query("hello world"))
             idx = faiss.IndexFlatL2(dim)
             self.store = FAISS(
                 embedding_function=self.embedding_function,
@@ -66,7 +63,7 @@ class VectorStoreManager:
             logger.exception("Error creating FAISS index")
             raise
 
-    @track_metrics(lambda docs: len(docs), target="inputs")
+    @track_metrics(lambda self, docs: len(docs), target="inputs")
     def add_documents(self, documents: List[Document], ids: Optional[List[str]] = None) -> List[str]:
         """
         Add or update a batch of Documents.
@@ -282,126 +279,126 @@ class VectorStoreManager:
             logger.exception("Error in MMR search")
             raise
 
-    def merge_from(self, other: "VectorStoreManager") -> None:
-        """
-        Merge another FAISS store into this one.
-        """
-        self._ensure_store()
-        if other.store is None:
-            raise ValueError("Other store not initialized")
-        try:
-            self.store.merge_from(other.store)
-            logger.info(f"Merged index '{other.index_name}' into '{self.index_name}'")
-        except Exception:
-            logger.exception("Error merging stores")
-            raise
+    # def merge_from(self, other: "VectorStoreManager") -> None:
+    #     """
+    #     Merge another FAISS store into this one.
+    #     """
+    #     self._ensure_store()
+    #     if other.store is None:
+    #         raise ValueError("Other store not initialized")
+    #     try:
+    #         self.store.merge_from(other.store)
+    #         logger.info(f"Merged index '{other.index_name}' into '{self.index_name}'")
+    #     except Exception:
+    #         logger.exception("Error merging stores")
+    #         raise
 
-    def serialize_to_bytes(self) -> bytes:
-        """
-        Return serialized bytes (index + docstore).
-        """
-        self._ensure_store()
-        try:
-            return self.store.serialize_to_bytes()
-        except Exception:
-            logger.exception("Error serializing to bytes")
-            raise
+    # def serialize_to_bytes(self) -> bytes:
+    #     """
+    #     Return serialized bytes (index + docstore).
+    #     """
+    #     self._ensure_store()
+    #     try:
+    #         return self.store.serialize_to_bytes()
+    #     except Exception:
+    #         logger.exception("Error serializing to bytes")
+    #         raise
 
-    @classmethod
-    async def afrom_texts(
-        cls,
-        texts: List[str],
-        embedding: Any,
-        metadatas: Optional[List[dict]] = None,
-        ids: Optional[List[str]] = None,
-        **kwargs: Any,
-    ) -> "VectorStoreManager":
-        """
-        Async constructor from raw texts.
-        """
-        inst = cls(embedding_function=embedding, index_name=kwargs.get("index_name", "index"))
-        inst.store = await FAISS.afrom_texts(
-            texts=texts, embedding=embedding, metadatas=metadatas, ids=ids, **kwargs
-        )
-        logger.info(f"Async initialized '{inst.index_name}' via afrom_texts")
-        return inst
+    # @classmethod
+    # async def afrom_texts(
+    #     cls,
+    #     texts: List[str],
+    #     embedding: Any,
+    #     metadatas: Optional[List[dict]] = None,
+    #     ids: Optional[List[str]] = None,
+    #     **kwargs: Any,
+    # ) -> "VectorStoreManager":
+    #     """
+    #     Async constructor from raw texts.
+    #     """
+    #     inst = cls(embedding_function=embedding, index_name=kwargs.get("index_name", "index"))
+    #     inst.store = await FAISS.afrom_texts(
+    #         texts=texts, embedding=embedding, metadatas=metadatas, ids=ids, **kwargs
+    #     )
+    #     logger.info(f"Async initialized '{inst.index_name}' via afrom_texts")
+    #     return inst
 
-    @classmethod
-    async def afrom_documents(
-        cls, documents: List[Document], embedding: Any, **kwargs: Any
-    ) -> "VectorStoreManager":
-        """
-        Async constructor from Documents.
-        """
-        inst = cls(embedding_function=embedding, index_name=kwargs.get("index_name", "index"))
-        inst.store = await FAISS.afrom_documents(
-            documents=documents, embedding=embedding, **kwargs
-        )
-        logger.info(f"Async initialized '{inst.index_name}' via afrom_documents")
-        return inst
+    # @classmethod
+    # async def afrom_documents(
+    #     cls, documents: List[Document], embedding: Any, **kwargs: Any
+    # ) -> "VectorStoreManager":
+    #     """
+    #     Async constructor from Documents.
+    #     """
+    #     inst = cls(embedding_function=embedding, index_name=kwargs.get("index_name", "index"))
+    #     inst.store = await FAISS.afrom_documents(
+    #         documents=documents, embedding=embedding, **kwargs
+    #     )
+    #     logger.info(f"Async initialized '{inst.index_name}' via afrom_documents")
+    #     return inst
 
-    @classmethod
-    async def afrom_embeddings(
-        cls,
-        text_embeddings: Iterable[Tuple[str, List[float]]],
-        embedding: Any,
-        metadatas: Optional[Iterable[dict]] = None,
-        ids: Optional[List[str]] = None,
-        **kwargs: Any,
-    ) -> "VectorStoreManager":
-        """
-        Async constructor from (text,embedding) pairs.
-        """
-        inst = cls(embedding_function=embedding, index_name=kwargs.get("index_name", "index"))
-        inst.store = await FAISS.afrom_embeddings(
-            text_embeddings=text_embeddings,
-            embedding=embedding,
-            metadatas=metadatas,
-            ids=ids,
-            **kwargs,
-        )
-        logger.info(f"Async initialized '{inst.index_name}' via afrom_embeddings")
-        return inst
+    # @classmethod
+    # async def afrom_embeddings(
+    #     cls,
+    #     text_embeddings: Iterable[Tuple[str, List[float]]],
+    #     embedding: Any,
+    #     metadatas: Optional[Iterable[dict]] = None,
+    #     ids: Optional[List[str]] = None,
+    #     **kwargs: Any,
+    # ) -> "VectorStoreManager":
+    #     """
+    #     Async constructor from (text,embedding) pairs.
+    #     """
+    #     inst = cls(embedding_function=embedding, index_name=kwargs.get("index_name", "index"))
+    #     inst.store = await FAISS.afrom_embeddings(
+    #         text_embeddings=text_embeddings,
+    #         embedding=embedding,
+    #         metadatas=metadatas,
+    #         ids=ids,
+    #         **kwargs,
+    #     )
+    #     logger.info(f"Async initialized '{inst.index_name}' via afrom_embeddings")
+    #     return inst
 
-    async def asimilarity_search(
-        self, query: str, k: int = 4, filter: Any = None, fetch_k: int = 20, **kwargs: Any
-    ) -> List[Document]:
-        """
-        Async similarity_search.
-        """
-        self._ensure_store()
-        return await self.store.asimilarity_search(query=query, k=k, filter=filter, fetch_k=fetch_k, **kwargs)
+    # async def asimilarity_search(
+    #     self, query: str, k: int = 4, filter: Any = None, fetch_k: int = 20, **kwargs: Any
+    # ) -> List[Document]:
+    #     """
+    #     Async similarity_search.
+    #     """
+    #     self._ensure_store()
+    #     return await self.store.asimilarity_search(query=query, k=k, filter=filter, fetch_k=fetch_k, **kwargs)
 
-    async def asimilarity_search_with_score(
-        self, query: str, k: int = 4, filter: Any = None, fetch_k: int = 20, **kwargs: Any
-    ) -> List[Tuple[Document, float]]:
-        """
-        Async similarity_search_with_score.
-        """
-        self._ensure_store()
-        return await self.store.asimilarity_search_with_score(query=query, k=k, filter=filter, fetch_k=fetch_k, **kwargs)
+    # async def asimilarity_search_with_score(
+    #     self, query: str, k: int = 4, filter: Any = None, fetch_k: int = 20, **kwargs: Any
+    # ) -> List[Tuple[Document, float]]:
+    #     """
+    #     Async similarity_search_with_score.
+    #     """
+    #     self._ensure_store()
+    #     return await self.store.asimilarity_search_with_score(query=query, k=k, filter=filter, fetch_k=fetch_k, **kwargs)
 
-    async def adelete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> Optional[bool]:
-        """
-        Async delete.
-        """
-        self._ensure_store()
-        return await self.store.adelete(ids=ids, **kwargs)
+    # async def adelete(self, ids: Optional[List[str]] = None, **kwargs: Any) -> Optional[bool]:
+    #     """
+    #     Async delete.
+    #     """
+    #     self._ensure_store()
+    #     return await self.store.adelete(ids=ids, **kwargs)
 
-    async def aget_by_ids(self, ids: List[str]) -> List[Document]:
-        """
-        Async get_by_ids.
-        """
-        self._ensure_store()
-        return await self.store.aget_by_ids(ids)
+    # async def aget_by_ids(self, ids: List[str]) -> List[Document]:
+    #     """
+    #     Async get_by_ids.
+    #     """
+    #     self._ensure_store()
+    #     return await self.store.aget_by_ids(ids)
 
-    async def amax_marginal_relevance_search(
-        self, query: str, k: int = 4, fetch_k: int = 20, lambda_mult: float = 0.5, filter: Any = None, **kwargs: Any
-    ) -> List[Document]:
-        """
-        Async MMR search.
-        """
-        self._ensure_store()
-        return await self.store.amax_marginal_relevance_search(
-            query=query, k=k, fetch_k=fetch_k, lambda_mult=lambda_mult, filter=filter, **kwargs
-        )
+    # async def amax_marginal_relevance_search(
+    #     self, query: str, k: int = 4, fetch_k: int = 20, lambda_mult: float = 0.5, filter: Any = None, **kwargs: Any
+    # ) -> List[Document]:
+    #     """
+    #     Async MMR search.
+    #     """
+    #     self._ensure_store()
+    #     return await self.store.amax_marginal_relevance_search(
+    #         query=query, k=k, fetch_k=fetch_k, lambda_mult=lambda_mult, filter=filter, **kwargs
+    #     )
