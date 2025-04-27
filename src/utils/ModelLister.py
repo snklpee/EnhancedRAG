@@ -46,6 +46,9 @@ class HuggingFaceModelLister:
         except Exception as e:
             logger.error("Unexpected error during Hugging Face login: %s", e)
             raise
+        
+    def huggingface_api(self)->HfApi:
+        return self.hf_api
 
     @track_metrics(lambda model_ids: len(model_ids))
     def list_models(

@@ -15,7 +15,12 @@ from config.settings import settings
 # Model lists
 lister = HuggingFaceModelLister()
 embedding_models = lister.list_models(task="sentence-similarity", filter="feature-extraction")
-llms = lister.list_models(task="text-generation", filter="text-generation-inference")
+hf_llms=[
+    "meta-llama/Llama-3.1-8B-Instruct",
+    "meta-llama/Llama-3.3-70B-Instruct",
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF"]
 
 # A single loader can be reused across runs
 loader = DocumentLoader()
@@ -137,14 +142,13 @@ with gr.Blocks(title="Enhanced RAG App") as demo:
     with gr.Tab("Generation"):
         with gr.Row():
             with gr.Column(scale=1):
-                llm_model = gr.Dropdown(choices=llms, label="LLM Model")
+                llm_model = gr.Dropdown(choices=hf_llms, label="LLM Model", value="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
                 temperature = gr.Slider(0.0, 1.0, value=0.7,step=0.1, label="Temperature")
                 max_output_tokens = gr.Number(label="Max Output Tokens", value=256, precision=0)
                 num_prompts = gr.Number(label="Number of Prompts to Generate", value=1, precision=0)
                 top_k = gr.Number(label="Top K Chunks", value=3, precision=0)
 
                 with gr.Accordion(label="System Prompts", open=False):
-                    sys_prompt_aug = gr.Textbox(label="System Prompt for Prompt Augmentation")
                     sys_prompt_fuse = gr.Textbox(label="System Prompt for Merge Fusion")
                     sys_prompt_final = gr.Textbox(label="System Prompt for Final Answer")
 
