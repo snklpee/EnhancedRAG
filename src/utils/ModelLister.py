@@ -54,6 +54,7 @@ class HuggingFaceModelLister:
         filter: str,
         sort: str = "likes",
         gated: bool = False,
+        inference: str = None,
         get_top: int = 10,
     ) -> List[str]:
         """
@@ -64,6 +65,7 @@ class HuggingFaceModelLister:
             filter (str): A substring filter that model IDs must contain.
             sort (str, optional): The sort order (e.g., "downloads", "likes", "trending_score"). Defaults to "likes".
             gated (bool, optional): Whether to include gated (private/restricted) models. Defaults to False.
+            inference : Literal["cold", "frozen", "warm"], optional A string to filter models on the Hub by their state on the Inference API. Warm models are available for immediate use. Cold models will be loaded on first inference call.
             get_top (int, optional): Maximum number of models to return. Defaults to 10.
 
         Returns:
@@ -80,6 +82,7 @@ class HuggingFaceModelLister:
             )
             models = self.hf_api.list_models(
                 sort=sort,
+                inference=inference,
                 task=task,
                 filter=filter,
                 gated=gated,

@@ -110,7 +110,7 @@ with gr.Blocks(title="Enhanced RAG App") as demo:
                     choices=embedding_models,
                     label="Embedding Model"
                 )
-                index_name = gr.Textbox(label="Vector Index Name")
+                index_name = gr.Textbox(label="Vector Index Name", value="index")
                 chunk_size = gr.Number(label="Chunk Size (optional)", value=300, precision=0)
                 chunk_overlap = gr.Number(label="Chunk Overlap (optional)", value=80, precision=0)
                 ingest_btn = gr.Button("Run Ingestion")
