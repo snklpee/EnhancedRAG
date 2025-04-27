@@ -259,25 +259,25 @@ class VectorStoreManager:
             logger.exception("Error in similarity_search_with_score")
             raise
 
-    def max_marginal_relevance_search(
-        self,
-        query: str,
-        k: int = 4,
-        fetch_k: int = 20,
-        lambda_mult: float = 0.5,
-        filter: Optional[Union[Dict[str, Any], Callable]] = None,
-    ) -> List[Document]:
-        """
-        Max-Marginal-Relevance search to balance relevance vs diversity.
-        """
-        self._ensure_store()
-        try:
-            return self.store.max_marginal_relevance_search(
-                query=query, k=k, fetch_k=fetch_k, lambda_mult=lambda_mult, filter=filter
-            )
-        except Exception:
-            logger.exception("Error in MMR search")
-            raise
+    # def max_marginal_relevance_search(
+    #     self,
+    #     query: str,
+    #     k: int = 4,
+    #     fetch_k: int = 20,
+    #     lambda_mult: float = 0.5,
+    #     filter: Optional[Union[Dict[str, Any], Callable]] = None,
+    # ) -> List[Document]:
+    #     """
+    #     Max-Marginal-Relevance search to balance relevance vs diversity.
+    #     """
+    #     self._ensure_store()
+    #     try:
+    #         return self.store.max_marginal_relevance_search(
+    #             query=query, k=k, fetch_k=fetch_k, lambda_mult=lambda_mult, filter=filter
+    #         )
+    #     except Exception:
+    #         logger.exception("Error in MMR search")
+    #         raise
 
     # def merge_from(self, other: "VectorStoreManager") -> None:
     #     """

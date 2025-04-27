@@ -4,10 +4,17 @@ import os
 import shutil
 import gradio as gr
 
+from langchain_core.documents import Document
+
 from src.ingestion.loader import DocumentLoader
 from src.ingestion.chunker import DocumentChunker
 from src.ingestion.HuggingFaceEmbedder import HuggingFaceEmbedder
-from src.ingestion.VectorStoreManager import VectorStoreManager 
+from src.ingestion.VectorStoreManager import VectorStoreManager
+
+from src.generation.PromptAugmentor import PromptAugmentor
+from src.generation.HuggingFaceLLM import HuggingFaceLLM
+from src.generation.Prompts import Prompts
+
 from src.utils.ModelLister import HuggingFaceModelLister
 
 from config.settings import settings
@@ -22,8 +29,11 @@ hf_llms=[
     "mistralai/Mistral-7B-Instruct-v0.3",
     "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF"]
 
-# A single loader can be reused across runs
 loader = DocumentLoader()
+
+pa_llm = HuggingFaceLLM(model_name="meta-llama/Llama-3.1-8B-Instruct")    
+fusion_llm = HuggingFaceLLM(model_name="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
+
 
 def upload_files(uploaded_files, index_name):
     """
@@ -39,7 +49,35 @@ def upload_files(uploaded_files, index_name):
         dest = os.path.join(save_dir, filename)
         shutil.copyfile(f.name, dest)
         rows.append([i, filename])
-    return rows  # Gradio Dataframe accepts List[List]
+    return rows
+
+def format_prompts_and_chunks(
+    prompt_chunks: list[tuple[str, list[Document]]],
+    max_chunks: int | None = None
+) -> tuple[str, list[str]]:
+    """
+    - Builds a '\n\n'-joined 'retrieved' block.
+    - Returns a list of 'contexts' (just prompt+all chunks) for summaries.
+    """
+    retrieved_parts = []
+    contexts = []
+
+    for p_idx, (prompt, chunks) in enumerate(prompt_chunks, start=1):
+        # 1) Retrieved text (optionally limit number of chunks)
+        lines = [f"Prompt {p_idx}: {prompt}\n"]
+        for c_idx, doc in enumerate(chunks[:max_chunks], start=1) if max_chunks else enumerate(chunks, start=1):
+            lines.append(f"  Chunk {c_idx}: {doc.page_content}")
+        retrieved_parts.append("\n".join(lines))
+
+        # 2) Full context block
+        ctx_lines = [f"Query: {prompt}\n"]
+        for c_idx, doc in enumerate(chunks, start=1):
+            ctx_lines.append(f"  Chunk {c_idx}: {doc.page_content}")
+        contexts.append("\n".join(ctx_lines))
+
+    retrieved_str = "\n\n".join(retrieved_parts)
+    return retrieved_str, contexts
+
 
 def ingest_pipeline(
     chunk_size, chunk_overlap, embed_model, index_name, state
@@ -63,7 +101,6 @@ def ingest_pipeline(
     vsm.add_documents(chunks)
 
     # Persist objects in state
-    state["chunker"] = chunker
     state["vsm"] = vsm
     state["embedder"] = embeddings
 
@@ -72,18 +109,49 @@ def ingest_pipeline(
 
 def generate_pipeline(
     num_prompts, top_k, llm_model, temperature,
-    max_output_tokens, sys_prompt_aug, sys_prompt_fuse,
+    max_output_tokens, sys_prompt_fuse,
     sys_prompt_final, query, state
 ):
-    chunker = state.get("chunker")
     vsm = state.get("vsm")
     embeddings = state.get("embedder")
+    
+    final_llm = HuggingFaceLLM(model_name=llm_model)
+    
+    retriever = vsm.retriever(search_type = "similarity", search_kwargs = {"k":top_k})
+    # 1. Generate prompts
+    augmentor = PromptAugmentor(client=pa_llm)
+    prompts = augmentor.generate(query=query, synthetic_count=num_prompts)
 
-    # Dummy outputs
-    prompts = [f"[Augmented Prompt {i+1}]" for i in range(int(num_prompts))]
-    retrieved = [["Chunk1", "Chunk2"] for _ in prompts]
-    summaries = [f"[Summary {i+1}]" for _ in prompts]
-    final_answer = "[Final synthesized answer]"
+    # 2. Retrieve chunks for each prompt
+    retrieved_chunk_docs = [retriever.invoke(prompt) for prompt in prompts]
+
+    # 3. Pair prompts with their chunk lists
+    prompt_chunks = list(zip(prompts, retrieved_chunk_docs))
+
+    # 2. Format retrieved & contexts in one go
+    retrieved, contexts = format_prompts_and_chunks(
+        prompt_chunks,
+        max_chunks=2
+    )
+
+    # 3. Generate summaries
+    summaries = ""
+    for idx, ctx in enumerate(contexts, start=1):
+        summary = fusion_llm.get_answer(
+            sys_prompt=sys_prompt_fuse,
+            user_prompt=ctx,
+            temperature=0.3,
+            max_tokens=300
+        )
+        summaries += f"Prompt {idx} Summary: {summary}\n\n"
+
+    # 4. Final answer
+    final_answer = final_llm.get_answer(
+        sys_prompt=sys_prompt_final,
+        user_prompt=summaries,
+        max_tokens=max_output_tokens,
+        temperature=temperature
+    )
 
     return prompts, retrieved, summaries, final_answer
 
@@ -149,8 +217,8 @@ with gr.Blocks(title="Enhanced RAG App") as demo:
                 top_k = gr.Number(label="Top K Chunks", value=3, precision=0)
 
                 with gr.Accordion(label="System Prompts", open=False):
-                    sys_prompt_fuse = gr.Textbox(label="System Prompt for Merge Fusion")
-                    sys_prompt_final = gr.Textbox(label="System Prompt for Final Answer")
+                    sys_prompt_fuse = gr.Textbox(label="System Prompt for Merge Fusion", value=Prompts.MERGE_FUSION_SYS_PROMPT)
+                    sys_prompt_final = gr.Textbox(label="System Prompt for Final Answer", value=Prompts.FINAL_ANS_SYS_PROMPT)
 
             with gr.Column(scale=1):
                 user_query = gr.Textbox(label="User Query")
@@ -167,7 +235,7 @@ with gr.Blocks(title="Enhanced RAG App") as demo:
             fn=generate_pipeline,
             inputs=[
                 num_prompts, top_k, llm_model, temperature, max_output_tokens,
-                sys_prompt_aug, sys_prompt_fuse, sys_prompt_final, user_query, state
+                sys_prompt_fuse, sys_prompt_final, user_query, state
             ],
             outputs=[prompts_out, retrieved_out, summaries_out, final_answer_out]
         )
