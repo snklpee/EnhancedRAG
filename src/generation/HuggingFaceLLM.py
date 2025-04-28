@@ -2,7 +2,7 @@ import logging
 from threading import Lock
 from typing import Dict, Any, Generator
 
-from huggingface_hub import InferenceClient  # no HuggingFaceHubError
+from huggingface_hub import InferenceClient  
 from config.settings import settings
 
 logger = logging.getLogger(__name__)

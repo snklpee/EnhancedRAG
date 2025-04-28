@@ -258,11 +258,11 @@ def build_generation_tab():
                     with gr.Row():
                         prompts_out = gr.Textbox(label="Augmented Prompts", value="Your Generated Prompts will Appear here", lines=4)
                     with gr.Row():
-                        retrieved_out = gr.Markdown(label="Retrieved Chunks", value="A subset of your `top-k` chunks will be shown here")
+                        retrieved_out = gr.Textbox(label="Retrieved Chunks", value="A subset of your `top-k` chunks will be shown here", lines=4)
                     with gr.Row():
-                        summaries_out = gr.Markdown(label="Summaries", value="Intermediate summaries will appear here…") 
+                        summaries_out = gr.Textbox(label="Summaries", value="Intermediate summaries will appear here…"lines=4) 
 
-                final_out = gr.Textbox(label="Final Answer", value="The final answer will appear here…", lines=4)
+                final_out = gr.Markdown(label="Final Answer", value="The final answer will appear here…",)
 
         run_btn.click(fn=generate_pipeline,
                       inputs=[num_prompts, top_k, llm_model, temperature,

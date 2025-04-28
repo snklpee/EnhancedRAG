@@ -1,6 +1,6 @@
 <mxfile host="Electron" agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) draw.io/26.2.2 Chrome/134.0.6998.205 Electron/35.2.1 Safari/537.36" version="26.2.2" pages="4">
   <diagram name="Demo" id="7B_WADQj-mXfg3SaiL9-">
-    <mxGraphModel dx="4585" dy="2083" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
+    <mxGraphModel dx="3704" dy="833" grid="1" gridSize="10" guides="1" tooltips="1" connect="1" arrows="1" fold="1" page="1" pageScale="1" pageWidth="850" pageHeight="1100" math="0" shadow="0">
       <root>
         <mxCell id="Wa7HIQuG9BmW9WueCix3-0" />
         <mxCell id="Wa7HIQuG9BmW9WueCix3-1" parent="Wa7HIQuG9BmW9WueCix3-0" />
@@ -341,7 +341,7 @@
             <Array as="points" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="lGe9GLfvsGXr9EI1h69a-3" value="Document Loader" style="whiteSpace=wrap;html=1;fillColor=#ffff88;strokeColor=#36393d;rounded=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" parent="Wa7HIQuG9BmW9WueCix3-1" vertex="1">
+        <mxCell id="lGe9GLfvsGXr9EI1h69a-3" value="DocumentLoader" style="whiteSpace=wrap;html=1;fillColor=#ffff88;strokeColor=#36393d;rounded=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" parent="Wa7HIQuG9BmW9WueCix3-1" vertex="1">
           <mxGeometry x="-1123" y="315" width="120" height="60" as="geometry" />
         </mxCell>
         <mxCell id="lGe9GLfvsGXr9EI1h69a-10" value="" style="edgeStyle=orthogonalEdgeStyle;rounded=0;orthogonalLoop=1;jettySize=auto;html=1;fontFamily=Architects Daughter;fontSource=https%3A%2F%2Ffonts.googleapis.com%2Fcss%3Ffamily%3DArchitects%2BDaughter;" parent="Wa7HIQuG9BmW9WueCix3-1" source="lGe9GLfvsGXr9EI1h69a-4" target="lGe9GLfvsGXr9EI1h69a-9" edge="1">
@@ -541,17 +541,14 @@
             <mxPoint x="-254" y="980" as="sourcePoint" />
           </mxGeometry>
         </mxCell>
-        <mxCell id="zyhL7vJOEUupw0u3yOEX-1" value="List" style="swimlane;fontStyle=0;childLayout=stackLayout;horizontal=1;startSize=30;horizontalStack=0;resizeParent=1;resizeParentMax=0;resizeLast=0;collapsible=1;marginBottom=0;whiteSpace=wrap;html=1;" vertex="1" parent="Wa7HIQuG9BmW9WueCix3-1">
-          <mxGeometry x="1260" y="230" width="140" height="120" as="geometry" />
+        <mxCell id="IjYsVCYywHSXmfEyhxAq-1" value="" style="group" vertex="1" connectable="0" parent="Wa7HIQuG9BmW9WueCix3-1">
+          <mxGeometry x="-1921" y="291" width="370" height="250" as="geometry" />
         </mxCell>
-        <mxCell id="zyhL7vJOEUupw0u3yOEX-2" value="Item 1" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="zyhL7vJOEUupw0u3yOEX-1">
-          <mxGeometry y="30" width="140" height="30" as="geometry" />
+        <mxCell id="IjYsVCYywHSXmfEyhxAq-0" value="" style="rounded=1;whiteSpace=wrap;html=1;" vertex="1" parent="IjYsVCYywHSXmfEyhxAq-1">
+          <mxGeometry width="370" height="250" as="geometry" />
         </mxCell>
-        <mxCell id="zyhL7vJOEUupw0u3yOEX-3" value="Item 2" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="zyhL7vJOEUupw0u3yOEX-1">
-          <mxGeometry y="60" width="140" height="30" as="geometry" />
-        </mxCell>
-        <mxCell id="zyhL7vJOEUupw0u3yOEX-4" value="Item 3" style="text;strokeColor=none;fillColor=none;align=left;verticalAlign=middle;spacingLeft=4;spacingRight=4;overflow=hidden;points=[[0,0.5],[1,0.5]];portConstraint=eastwest;rotatable=0;whiteSpace=wrap;html=1;" vertex="1" parent="zyhL7vJOEUupw0u3yOEX-1">
-          <mxGeometry y="90" width="140" height="30" as="geometry" />
+        <mxCell id="iL3_E24jBrdXc1odChL1-0" value="&lt;h3&gt;&lt;font style=&quot;background-color: light-dark(#ffffff, var(--ge-dark-color, #121212));&quot; data-font-src=&quot;https://fonts.googleapis.com/css?family=Architects+Daughter&quot; face=&quot;Architects Daughter&quot;&gt;Tech Stack; Tools, Services and Platforms&lt;br&gt;&lt;/font&gt;&lt;span style=&quot;font-weight: normal;&quot;&gt;&lt;font style=&quot;background-color: light-dark(#ffffff, var(--ge-dark-color, #121212));&quot; data-font-src=&quot;https://fonts.googleapis.com/css?family=Architects+Daughter&quot; face=&quot;Architects Daughter&quot;&gt;Python:&lt;br&gt;&lt;/font&gt;&lt;font style=&quot;background-color: light-dark(#ffffff, var(--ge-dark-color, #121212));&quot; data-font-src=&quot;https://fonts.googleapis.com/css?family=Architects+Daughter&quot; face=&quot;Architects Daughter&quot;&gt;Langchain&lt;br&gt;&lt;/font&gt;&lt;font style=&quot;background-color: light-dark(#ffffff, var(--ge-dark-color, #121212));&quot; data-font-src=&quot;https://fonts.googleapis.com/css?family=Architects+Daughter&quot; face=&quot;Architects Daughter&quot;&gt;Databricks Vector Search&lt;br&gt;&lt;/font&gt;&lt;font style=&quot;background-color: light-dark(#ffffff, var(--ge-dark-color, #121212));&quot; data-font-src=&quot;https://fonts.googleapis.com/css?family=Architects+Daughter&quot; face=&quot;Architects Daughter&quot;&gt;Databricks Mosaic AI&lt;br&gt;&lt;/font&gt;&lt;font style=&quot;background-color: light-dark(#ffffff, var(--ge-dark-color, #121212));&quot; data-font-src=&quot;https://fonts.googleapis.com/css?family=Architects+Daughter&quot; face=&quot;Architects Daughter&quot;&gt;Huggingface: Transformers, Hub, Inference&lt;br&gt;&lt;/font&gt;&lt;font style=&quot;background-color: light-dark(#ffffff, var(--ge-dark-color, #121212));&quot; data-font-src=&quot;https://fonts.googleapis.com/css?family=Architects+Daughter&quot; face=&quot;Architects Daughter&quot;&gt;OpenAI,&lt;br&gt;&lt;/font&gt;&lt;font style=&quot;background-color: light-dark(#ffffff, var(--ge-dark-color, #121212));&quot; data-font-src=&quot;https://fonts.googleapis.com/css?family=Architects+Daughter&quot; face=&quot;Architects Daughter&quot;&gt;Weights and Biases&lt;br&gt;&lt;/font&gt;&lt;font style=&quot;background-color: light-dark(#ffffff, var(--ge-dark-color, #121212));&quot; data-font-src=&quot;https://fonts.googleapis.com/css?family=Architects+Daughter&quot; face=&quot;Architects Daughter&quot;&gt;PostGreSQL&lt;br&gt;&lt;/font&gt;&lt;font style=&quot;background-color: light-dark(#ffffff, var(--ge-dark-color, #121212));&quot; data-font-src=&quot;https://fonts.googleapis.com/css?family=Architects+Daughter&quot; face=&quot;Architects Daughter&quot;&gt;Runpod&lt;/font&gt;&lt;/span&gt;&lt;/h3&gt;" style="text;html=1;align=left;verticalAlign=middle;resizable=0;points=[];autosize=1;strokeColor=none;fillColor=none;" parent="IjYsVCYywHSXmfEyhxAq-1" vertex="1">
+          <mxGeometry x="31" y="15" width="310" height="220" as="geometry" />
         </mxCell>
       </root>
     </mxGraphModel>
