@@ -245,10 +245,14 @@ def build_generation_tab():
                 show_chunks = gr.Number(label="Chunks to Display", value=2, precision=0)
 
                 with gr.Accordion("System Prompts", open=False):
-                    sys_fuse = gr.Textbox(label="Merge Fusion Prompt",
-                                          value=Prompts.MERGE_FUSION_SYS_PROMPT,lines=4)
-                    sys_final = gr.Textbox(label="Final Answer Prompt",
-                                           value=Prompts.FINAL_ANS_SYS_PROMPT,lines=4)
+                    sys_fuse = gr.Textbox(
+                        label="Merge Fusion Prompt",
+                        value=Prompts.MERGE_FUSION_SYS_PROMPT,
+                        lines=4)
+                    sys_final = gr.Textbox(
+                        label="Final Answer Prompt",
+                        value=Prompts.FINAL_ANS_SYS_PROMPT,
+                        lines=4)
 
             with gr.Column(scale=1):
                 user_query = gr.Textbox(label="User Query")
@@ -256,13 +260,25 @@ def build_generation_tab():
 
                 with gr.Accordion("Intermediate Outputs", open=False):
                     with gr.Row():
-                        prompts_out = gr.Textbox(label="Augmented Prompts", value="Your Generated Prompts will Appear here", lines=4)
+                        prompts_out = gr.Textbox(
+                            label="Augmented Prompts", 
+                            value="Your Generated Prompts will Appear here", 
+                            lines=4, show_copy_button=True)
                     with gr.Row():
-                        retrieved_out = gr.Textbox(label="Retrieved Chunks", value="A subset of your `top-k` chunks will be shown here", lines=4)
+                        retrieved_out = gr.Textbox(
+                            label="Retrieved Chunks", 
+                            value="A subset of your `top-k` chunks will be shown here", 
+                            lines=4, show_copy_button=True)
                     with gr.Row():
-                        summaries_out = gr.Textbox(label="Summaries", value="Intermediate summaries will appear here…"lines=4) 
+                        summaries_out = gr.Textbox(
+                            label="Summaries", 
+                            value="Intermediate summaries will appear here…",
+                            lines=4, show_copy_button=True) 
 
-                final_out = gr.Markdown(label="Final Answer", value="The final answer will appear here…",)
+                final_out = gr.Markdown(
+                    label="Final Answer", 
+                    value="The final answer will appear here…",
+                    show_copy_button=True)
 
         run_btn.click(fn=generate_pipeline,
                       inputs=[num_prompts, top_k, llm_model, temperature,
