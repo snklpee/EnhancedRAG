@@ -10,6 +10,7 @@ from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.vectorstores import FAISS
 from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_core.documents import Document
+from tqdm.auto import tqdm
 from src.utils.metrics import track_metrics
 from config.settings import settings
 
@@ -19,12 +20,22 @@ logging.basicConfig(level=logging.INFO)
 
 class VectorStoreManager:
     """
-    High-level manager for a FAISS vector store (langchain_community.vectorstores.FAISS).
+    High-level manager for a FAISS vector store.
 
-    Args:
-        embedding_function: Embeddings or Callable[[str], List[float]]
-        index_name:         Name under which to save/load on disk.
-        distance_strategy:  Distance metric enum (EUCLIDEAN_DISTANCE or COSINE).
+    Provides synchronous and asynchronous methods for index management,
+    document CRUD, searching (including MMR), serialization, and retrieval.
+
+    Attributes:
+        embedding_function: Callable[[str], List[float]] or Embeddings
+            Function or object to compute embeddings.
+        index_name: str
+            Identifier used when saving/loading index files.
+        distance_strategy: DistanceStrategy
+            Metric for FAISS (e.g., EUCLIDEAN_DISTANCE or COSINE).
+        folder_path: str
+            Base directory for local index files (from settings.FAISS_INDEXES).
+        store: FAISS | None
+            Underlying LangChain FAISS store instance.
     """
 
     def __init__(
@@ -33,19 +44,38 @@ class VectorStoreManager:
         index_name: str,
         distance_strategy: DistanceStrategy = DistanceStrategy.EUCLIDEAN_DISTANCE,
     ):
+        """
+        Initialize the manager without loading or creating an index.
+
+        Args:
+            embedding_function: Embeddings object or callable to generate vectors.
+            index_name: Name to assign to this vector index on disk.
+            distance_strategy: FAISS distance metric.
+        """
         self.embedding_function = embedding_function
         self.index_name = index_name
         self.distance_strategy = distance_strategy
         self.folder_path = settings.FAISS_INDEXES
         self.store: Optional[FAISS] = None
+        logger.info(f"VectorStoreManager initialized for index '{index_name}'")
 
-    def _ensure_store(self):
+    def _ensure_store(self) -> None:
+        """
+        Internal: ensure a FAISS store is present.
+        Raises:
+            RuntimeError: If store is not initialized.
+        """
         if self.store is None:
-            raise RuntimeError("Vector store not initialized; call create_index/from_texts/load_local first.")
+            raise RuntimeError(
+                "Vector store not initialized; call create_index, from_texts, or load_local first."
+            )
 
     def create_index(self) -> None:
         """
-        Create a fresh FAISS index in memory.
+        Create a fresh FAISS index in memory using the embedding dimension.
+
+        Raises:
+            Exception: On failure to create index.
         """
         try:
             dim = len(self.embedding_function.embed_query("hello world"))
@@ -58,58 +88,73 @@ class VectorStoreManager:
                 normalize_L2=False,
                 distance_strategy=self.distance_strategy,
             )
-            logger.info(f"Created in‐memory FAISS index '{self.index_name}' (dim={dim})")
+            logger.info(f"Created FAISS index '{self.index_name}' with dim={dim}")
         except Exception as e:
-            logger.exception("Error creating FAISS index")
+            logger.exception("Failed to create FAISS index")
             raise
 
     @track_metrics(lambda self, docs: len(docs), target="inputs")
-    def add_documents(self, documents: List[Document], ids: Optional[List[str]] = None) -> List[str]:
+    def add_documents(
+        self,
+        documents: List[Document],
+        ids: Optional[List[str]] = None,
+    ) -> List[str]:
         """
-        Add or update a batch of Documents.
+        Add or update documents in the vector store with progress bar.
 
         Args:
-            documents: List of Document
-            ids:       Optional list of IDs; will be generated if None.
+            documents: Documents to index.
+            ids: Optional IDs; generated if omitted.
 
         Returns:
             List of assigned document IDs.
+
+        Raises:
+            RuntimeError: If store not initialized.
+            ValueError: If ids length mismatches documents.
         """
         self._ensure_store()
         try:
             if ids and len(ids) != len(documents):
                 raise ValueError("Length of ids must match documents")
             ids = ids or [str(uuid4()) for _ in documents]
-            result = self.store.add_documents(documents=documents, ids=ids)
-            logger.info(f"Added {len(documents)} docs into '{self.index_name}'")
-            return result
-        except Exception:
-            logger.exception("Error adding documents")
+            for doc, uid in tqdm(zip(documents, ids), total=len(documents), desc="Adding documents"):
+                self.store.add_documents(documents=[doc], ids=[uid])
+            logger.info(f"Added {len(documents)} documents to '{self.index_name}'")
+            return ids
+        except Exception as e:
+            logger.exception("Error adding documents to store")
             raise
 
-    @track_metrics(lambda ids: len(ids), target="inputs")
+    @track_metrics(lambda self, ids: len(ids or []), target="inputs")
     def delete(self, ids: Optional[List[str]] = None) -> bool:
         """
-        Delete documents by IDs (or all if ids=None).
+        Delete documents by their IDs (or all if ids is None).
 
         Args:
-            ids: List of document IDs or None to delete all.
+            ids: IDs to remove; None to delete all.
 
         Returns:
             True if deletion succeeded.
+
+        Raises:
+            RuntimeError: If store not initialized.
         """
         self._ensure_store()
         try:
             result = self.store.delete(ids=ids)
-            logger.info(f"Deleted docs {ids or 'ALL'} from '{self.index_name}'")
+            logger.info(f"Deleted {len(ids) if ids else 'all'} docs from '{self.index_name}'")
             return result
         except Exception:
-            logger.exception("Error deleting documents")
+            logger.exception("Error deleting documents from store")
             raise
 
     def drop_index(self) -> None:
         """
-        Remove local files and clear in-memory store.
+        Remove index files from disk and clear in-memory store.
+
+        Raises:
+            Exception: On filesystem errors.
         """
         try:
             for ext in (".faiss", ".pkl"):
@@ -118,29 +163,35 @@ class VectorStoreManager:
                     os.remove(path)
                     logger.info(f"Removed file {path}")
             self.store = None
-            logger.info(f"Dropped index '{self.index_name}'")
+            logger.info(f"Dropped index '{self.index_name}' completely")
         except Exception:
-            logger.exception("Error dropping index")
+            logger.exception("Error dropping index files")
             raise
 
     def save_local(self) -> None:
         """
-        Persist current FAISS store to disk.
+        Persist the FAISS index and metadata to disk.
+
+        Raises:
+            RuntimeError: If store not initialized.
         """
         self._ensure_store()
         try:
             self.store.save_local(folder_path=self.folder_path, index_name=self.index_name)
-            logger.info(f"Saved index '{self.index_name}' to {self.folder_path}")
+            logger.info(f"Saved index '{self.index_name}' to '{self.folder_path}'")
         except Exception:
-            logger.exception("Error saving index")
+            logger.exception("Error saving index to disk")
             raise
 
     def load_local(self, allow_pickle: bool = False) -> None:
         """
-        Load a saved FAISS store from disk.
+        Load an existing FAISS index from disk.
 
         Args:
-            allow_pickle: allow pickle‐based docstore deserialization.
+            allow_pickle: Permit pickle-based deserialization.
+
+        Raises:
+            Exception: If loading fails.
         """
         try:
             self.store = FAISS.load_local(
@@ -151,7 +202,7 @@ class VectorStoreManager:
             )
             logger.info(f"Loaded index '{self.index_name}' from disk")
         except Exception:
-            logger.exception("Error loading index")
+            logger.exception("Error loading index from disk")
             raise
 
     def from_texts(
@@ -162,10 +213,16 @@ class VectorStoreManager:
         **kwargs: Any,
     ) -> None:
         """
-        Synchronous factory: build store straight from raw texts.
+        Build the store directly from raw texts.
 
         Args:
-            texts, metadatas, ids, plus any FAISS.from_texts kwargs.
+            texts: Input strings.
+            metadatas: Optional metadata per text.
+            ids: Optional IDs.
+            kwargs: Forwarded to FAISS.from_texts.
+
+        Raises:
+            Exception: On construction error.
         """
         try:
             self.store = FAISS.from_texts(
@@ -177,15 +234,23 @@ class VectorStoreManager:
             )
             logger.info(f"Initialized '{self.index_name}' via from_texts")
         except Exception:
-            logger.exception("Error in from_texts")
+            logger.exception("Error in from_texts factory")
             raise
 
-    def from_documents(self, documents: List[Document], **kwargs: Any) -> None:
+    def from_documents(
+        self,
+        documents: List[Document],
+        **kwargs: Any,
+    ) -> None:
         """
-        Synchronous factory: build store from Document objects.
+        Build the store from Document objects.
 
         Args:
-            documents: List[Document], plus FAISS.from_documents kwargs.
+            documents: List of Document instances.
+            kwargs: Forwarded to FAISS.from_documents.
+
+        Raises:
+            Exception: On construction error.
         """
         try:
             self.store = FAISS.from_documents(
@@ -195,27 +260,32 @@ class VectorStoreManager:
             )
             logger.info(f"Initialized '{self.index_name}' via from_documents")
         except Exception:
-            logger.exception("Error in from_documents")
+            logger.exception("Error in from_documents factory")
             raise
 
     def retriever(self, **kwargs: Any) -> Any:
         """
-        Build a Retriever wrapper around this store.
+        Construct a Retriever for advanced querying.
 
-        kwargs may include:
-          - search_type: "similarity", "mmr", "similarity_score_threshold"
-          - search_kwargs: dict with k, fetch_k, lambda_mult, filter, score_threshold
+        Args:
+            kwargs: Options like search_type, search_kwargs, etc.
+
+        Returns:
+            A VectorStoreRetriever instance.
+
+        Raises:
+            RuntimeError: If store not initialized.
         """
         self._ensure_store()
         try:
             rt = self.store.as_retriever(**kwargs)
-            logger.info(f"Created retriever for '{self.index_name}' with {kwargs}")
+            logger.info(f"Created retriever for '{self.index_name}' with params {kwargs}")
             return rt
         except Exception:
             logger.exception("Error creating retriever")
             raise
 
-    @track_metrics(lambda docs: len(docs), target="outputs")
+    @track_metrics(lambda self, docs: len(docs), target="outputs")
     def similarity_search(
         self,
         query: str,
@@ -224,22 +294,30 @@ class VectorStoreManager:
         fetch_k: int = 20,
     ) -> List[Document]:
         """
-        Basic similarity search.
+        Perform a basic similarity search.
 
         Args:
-            query: Text query
-            k:     # results
-            filter: metadata filter dict or callable
-            fetch_k: passed to FAISS under the hood
+            query: Query text.
+            k: Results count.
+            filter: Metadata filter.
+            fetch_k: Number fetched before filtering.
+
+        Returns:
+            List of Documents.
+
+        Raises:
+            RuntimeError: If store not initialized.
         """
         self._ensure_store()
         try:
-            return self.store.similarity_search(query=query, k=k, filter=filter, fetch_k=fetch_k)
+            docs = self.store.similarity_search(query=query, k=k, filter=filter, fetch_k=fetch_k)
+            logger.info(f"Retrieved {len(docs)} docs for query '{query}'")
+            return docs
         except Exception:
             logger.exception("Error in similarity_search")
             raise
 
-    @track_metrics(lambda docs: len(docs), target="outputs")
+    @track_metrics(lambda self, docs: len(docs), target="outputs")
     def similarity_search_with_score(
         self,
         query: str,
@@ -248,13 +326,27 @@ class VectorStoreManager:
         fetch_k: int = 20,
     ) -> List[Tuple[Document, float]]:
         """
-        Return (Document, score) pairs.
+        Retrieve Documents along with similarity scores.
+
+        Args:
+            query: Text to search.
+            k: Number of results.
+            filter: Metadata filter.
+            fetch_k: Pre-MMR fetch limit.
+
+        Returns:
+            List of (Document, score).
+
+        Raises:
+            RuntimeError: If store not initialized.
         """
         self._ensure_store()
         try:
-            return self.store.similarity_search_with_score(
+            results = self.store.similarity_search_with_score(
                 query=query, k=k, filter=filter, fetch_k=fetch_k
             )
+            logger.info(f"Retrieved {len(results)} scored docs for '{query}'")
+            return results
         except Exception:
             logger.exception("Error in similarity_search_with_score")
             raise
