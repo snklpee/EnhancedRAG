@@ -17,6 +17,7 @@ from src.ingestion.VectorStoreManager import VectorStoreManager
 from src.generation.PromptAugmentor import PromptAugmentor
 from src.generation.HuggingFaceLLM import HuggingFaceLLM
 from src.generation.Prompts import Prompts
+from src.generation.Fusion import FusionSummarizer
 
 from src.utils.ModelLister import HuggingFaceModelLister
 

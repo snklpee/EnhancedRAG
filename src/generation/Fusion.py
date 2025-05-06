@@ -1,5 +1,6 @@
 import logging
 from typing import List, Tuple
+from tqdm import tqdm
 
 from langchain_core.documents import Document
 from src.generation.HuggingFaceLLM import HuggingFaceLLM
@@ -9,7 +10,7 @@ logger.setLevel(logging.INFO)
 
 class FusionSummarizer:
     """
-    Class for summarizing prompt chunks using a provided fusion LLM.
+    Class for summarizing prompt chunks using a provided fusion LLM, with progress tracking.
 
     Attributes:
         fusion_llm (HuggingFaceLLM): Initialized LLM for generating summaries.
@@ -44,10 +45,10 @@ class FusionSummarizer:
         prompt_chunks: List[Tuple[str, List[Document]]]
     ) -> List[str]:
         """
-        Summarize each prompt and its associated document chunks.
+        Summarize each prompt and its associated document chunks, with a progress bar.
 
         For each (prompt_text, chunks) tuple, calls the fusion LLM to generate
-        a summary and formats it as markdown.
+        a summary and formats it as markdown. A tqdm progress bar tracks overall progress.
 
         Args:
             prompt_chunks (List[Tuple[str, List[Document]]]):
@@ -65,13 +66,18 @@ class FusionSummarizer:
             raise ValueError("prompt_chunks must contain at least one item.")
 
         summaries: List[str] = []
-        for idx, (prompt_text, chunks) in enumerate(prompt_chunks, start=1):
+        total = len(prompt_chunks)
+        logger.info(f"Starting summarization of {total} prompts...")
+        for idx, (prompt_text, chunks) in enumerate(
+            tqdm(prompt_chunks, desc="Summarizing prompts", unit="prompt"),
+            start=1
+        ):
             try:
                 # Build context from chunks
                 context_lines = [f"Chunk {i}: {doc.page_content}" for i, doc in enumerate(chunks, start=1)]
                 user_prompt = f"Query: {prompt_text}\n\n" + "\n".join(context_lines)
 
-                logger.info(f"Generating summary for prompt {idx}: '{prompt_text[:50]}...'")
+                logger.info(f"[{idx}/{total}] Generating summary for prompt: '{prompt_text[:50]}...' ")
                 summary = self.fusion_llm.get_answer(
                     sys_prompt=self.sys_prompt,
                     user_prompt=user_prompt,
@@ -87,4 +93,5 @@ class FusionSummarizer:
                 logger.exception(f"Failed to generate summary for prompt {idx}.")
                 raise RuntimeError(f"Error summarizing prompt {idx}: {e}")
 
+        logger.info("Summarization complete.")
         return summaries
