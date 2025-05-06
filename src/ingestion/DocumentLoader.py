@@ -5,7 +5,6 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from tqdm.auto import tqdm
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
     DirectoryLoader,
@@ -27,7 +26,6 @@ class DocumentLoader:
 
     Uses langchain_community loaders under the hood and tracks:
       - Number of inputs/outputs via metrics decorator.
-      - Loading progress via tqdm.
       - Errors via structured logging.
 
     Attributes:
@@ -114,7 +112,7 @@ class DocumentLoader:
 
         all_docs: List[Document] = []
         # Iterate patterns with a progress bar
-        for pattern in tqdm(patterns, desc="Patterns", unit="pattern"):
+        for pattern in patterns:
             ext = Path(pattern).suffix.lower()
 
             try:
@@ -190,7 +188,7 @@ class DocumentLoader:
                 raise FileNotFoundError(msg)
 
         loaded_docs: List[Document] = []
-        for fname in tqdm(file_names, desc="Files", unit="file"):
+        for fname in file_names:
             file_path = parent_dir / fname
             ext = file_path.suffix.lower()
 
