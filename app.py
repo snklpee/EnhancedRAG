@@ -2,12 +2,9 @@
 
 import os
 import shutil
-import shutil
 import glob
 import gradio as gr
 from typing import Dict, List, Tuple
-
-from langchain_core.documents import Document
 
 from src.ingestion.DocumentLoader import DocumentLoader
 from src.ingestion.DocumentChunker import DocumentChunker
@@ -28,6 +25,9 @@ from config.settings import settings
 pa_llm = HuggingFaceLLM(model_name="meta-llama/Llama-3.1-8B-Instruct")
 fusion_llm = HuggingFaceLLM(model_name="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
 _final_llm_cache: Dict[str, HuggingFaceLLM] = {}
+
+loader = DocumentLoader()
+augmentor = PromptAugmentor(client=pa_llm)
 
 def get_final_llm(model_name: str) -> HuggingFaceLLM:
     if model_name not in _final_llm_cache:
@@ -64,97 +64,90 @@ def cleanup_index(index_name: str):
     return f"Cleared index `{index_name}`."
 
 
-def format_prompts_and_chunks(
-    prompt_chunks: List[Tuple[str, List[Document]]],
-    max_chunks: int = None
-) -> Tuple[str, List[str]]:
-    retrieved_parts = []
-    contexts = []
-    for p_idx, (prompt, chunks) in enumerate(prompt_chunks, start=1):
-        # Retrieved snippet
-        lines = [f"**Prompt {p_idx}:** {prompt}\n"]
-        for c_idx, doc in enumerate(chunks[:max_chunks] if max_chunks else chunks, start=1):
-            lines.append(f"- Chunk {c_idx}: {doc.page_content}")
-        retrieved_parts.append("\n".join(lines))
-
-        # Full context
-        ctx = [f"Query: {prompt}"]
-        for c_idx, doc in enumerate(chunks, start=1):
-            ctx.append(f"Chunk {c_idx}: {doc.page_content}")
-        contexts.append("\n".join(ctx))
-
-    return "\n\n".join(retrieved_parts), contexts
-
 
 def ingest_pipeline(
-    chunk_size, chunk_overlap, embed_model, index_name, ingest_state, progress=gr.Progress()
+    chunk_size, chunk_overlap, embed_model, index_name, ingest_state,
+    progress=gr.Progress(track_tqdm=True)
 ):
+    # 1) list files
     progress(0, desc="Listing uploaded files…")
     files = loader.list_filenames(index_name)
     if not files:
         raise gr.Error(f"No files found under index `{index_name}`. Please upload first.")
+    yield (str(len(files)), "", "")
+
+    # 2) load docs
     progress(0.2, desc="Loading documents…")
     documents = loader.load_documents(subdir=index_name, file_names=files)
+    yield (str(len(files)), str(len(documents)), "")
+
+    # 3) chunk docs
     progress(0.4, desc="Chunking documents…")
     chunker = DocumentChunker(
         hf_embedding_model=embed_model,
         chunk_size=chunk_size,
         chunk_overlap=chunk_overlap
     )
-    chunks = chunker.chunk_documents(documents)
+    chunks = []
+    # wrap chunk_documents in tqdm so Gradio can capture it
+    for c in progress.tqdm(chunker.chunk_documents(documents), desc="Chunking"):
+        chunks.append(c)
+    yield (str(len(files)), str(len(documents)), str(len(chunks)))
+
+    # 4) create & add to vector index
     progress(0.6, desc="Creating vector index…")
     embeddings = HuggingFaceEmbedder(embed_model)
     vsm = VectorStoreManager(embedding_function=embeddings, index_name=index_name)
     vsm.create_index()
+
     progress(0.8, desc="Adding embeddings…")
-    vsm.add_documents(chunks)
+    for _ in progress.tqdm(vsm.add_documents(chunks), desc="Embedding"):  # assuming add_documents is iterable
+        pass
     progress(1, desc="Done.")
 
-    # Persist for this session
     ingest_state["vsm"] = vsm
     ingest_state["embedder"] = embeddings
 
-    return str(len(files)), str(len(documents)), str(len(chunks))
+    yield str(len(files)), str(len(documents)), str(len(chunks))
 
 
 def generate_pipeline(
-    num_prompts, top_k, llm_model, temperature,
-    max_output_tokens, sys_prompt_fuse,
-    sys_prompt_final, show_chunks, query, ingest_state, progress=gr.Progress()
+    num_prompts: int, top_k: int, llm_model: str, temperature: float,
+    max_output_tokens: int, sys_prompt_fuse: str,
+    sys_prompt_final: str, show_chunks: int, query: str,
+    ingest_state, progress=gr.Progress(track_tqdm=True)
 ):
-    # Input validation
-    if num_prompts < 1:
-        raise gr.Error("Number of prompts must be ≥ 1.")
-    if top_k < 1:
-        raise gr.Error("Top K chunks must be ≥ 1.")
-
+    if num_prompts < 1 or top_k < 1:
+        raise gr.Error("num_prompts and top_k must be >= 1.")
     vsm = ingest_state.get("vsm")
     if vsm is None:
-        raise gr.Error("No index found—please run ingestion first.")
+        raise gr.Error("Run ingestion first.")
 
-    progress(0, desc="Generating synthetic prompts…")
-    augmentor = PromptAugmentor(client=pa_llm)
+    # 1) generate prompts
+    progress(0, desc="Generating prompts…")
     prompts = augmentor.generate(query=query, synthetic_count=num_prompts)
+    yield ("\n\n".join(prompts), "", "", "")
 
-    progress(0.2, desc="Retrieving top-K chunks…")
+    # 2) retrieve chunks
+    progress(0.2, desc="Retrieving chunks…")
     retriever = vsm.retriever(search_type="similarity", search_kwargs={"k": top_k})
-    prompt_chunks = [(p, retriever.invoke(p)) for p in prompts]
+    retrieved_text = ""
+    prompt_chunks = []
+    for idx, p in enumerate(prompts, start=1):
+        docs = retriever.invoke(p)
+        prompt_chunks.append((p, docs))
+        concat = "\n".join(doc.page_content for doc in docs[:show_chunks])
+        retrieved_text += f"Prompt {idx}\nChunks:\n{concat}\n\n"
+        yield ("\n\n".join(prompts), retrieved_text, "", "")
 
-    progress(0.4, desc="Formatting retrieved chunks…")
-    retrieved, contexts = format_prompts_and_chunks(prompt_chunks, max_chunks=show_chunks)
-
-    progress(0.6, desc="Generating intermediate summaries…")
-    summaries = []
-    for idx, ctx in enumerate(contexts, start=1):
-        summ = fusion_llm.get_answer(
-            sys_prompt=sys_prompt_fuse,
-            user_prompt=ctx,
-            temperature=0.3,
-            max_tokens=300
-        )
-        summaries.append(f"**Prompt {idx} Summary:** {summ}")
+    # 3) summarize
+    progress(0.6, desc="Summarizing…")
+    summarizer = FusionSummarizer(fusion_llm=fusion_llm, sys_prompt=sys_prompt_fuse)
+    summaries = summarizer.summarize(prompt_chunks=prompt_chunks)
     summaries_text = "\n\n".join(summaries)
+    yield ("\n\n".join(prompts), retrieved_text, summaries_text, "")
 
+    # 4) final answer
     progress(0.8, desc="Generating final answer…")
     final_llm = get_final_llm(llm_model)
     final_answer = final_llm.get_answer(
@@ -164,9 +157,7 @@ def generate_pipeline(
         temperature=temperature
     )
     progress(1, desc="Done.")
-    prompts_out    = "\n\n".join(prompts) 
-    
-    return prompts_out, retrieved, summaries_text, final_answer
+    yield ("\n\n".join(prompts), retrieved_text, summaries_text, final_answer)
 
 
 # ——— Build UI ———
@@ -179,8 +170,6 @@ hf_llms = [
     "mistralai/Mistral-7B-Instruct-v0.3",
     "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF"
 ]
-
-loader = DocumentLoader()
 
 
 def build_ingestion_tab():
@@ -285,7 +274,8 @@ def build_generation_tab():
                       inputs=[num_prompts, top_k, llm_model, temperature,
                               max_output_tokens, sys_fuse, sys_final,
                               show_chunks, user_query, session_state],
-                      outputs=[prompts_out, retrieved_out, summaries_out, final_out])
+                      outputs=[prompts_out, retrieved_out, summaries_out, final_out],
+)
 
     return locals()
 

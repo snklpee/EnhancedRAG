@@ -1,6 +1,6 @@
 import logging
 from typing import List, Tuple
-from tqdm import tqdm
+from tqdm.auto import tqdm
 
 from langchain_core.documents import Document
 from src.generation.HuggingFaceLLM import HuggingFaceLLM
