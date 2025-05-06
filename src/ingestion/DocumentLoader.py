@@ -5,7 +5,7 @@ import logging
 from pathlib import Path
 from typing import List, Optional
 
-from tqdm import tqdm
+from tqdm.auto import tqdm
 from langchain_core.documents import Document
 from langchain_community.document_loaders import (
     DirectoryLoader,
