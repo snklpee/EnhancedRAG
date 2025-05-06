@@ -6,7 +6,6 @@ from typing import List, Tuple, Union
 from transformers import AutoTokenizer, PreTrainedTokenizer
 from langchain_text_splitters import SentenceTransformersTokenTextSplitter
 from langchain_core.documents import Document
-from tqdm.auto import tqdm
 
 from src.utils.metrics import track_metrics
 
@@ -142,7 +141,6 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
         """
         Split each Document into smaller token-based chunks, preserving metadata.
 
-        Displays a tqdm progress bar over the documents.
 
         Args:
             documents (List[Document]):
@@ -159,7 +157,7 @@ class DocumentChunker(metaclass=_TokenizerSingletonMeta):
         all_chunks: List[Document] = []
 
         logger.info(f"Starting chunking of {len(documents)} documents")
-        for doc in tqdm(documents, desc="Chunking documents", unit="doc"):
+        for doc in documents:
             try:
                 texts = self.splitter.split_text(doc.page_content)
             except Exception as e:
