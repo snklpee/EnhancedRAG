@@ -3,7 +3,6 @@
 import logging
 from typing import List, Sequence
 
-from tqdm.auto import tqdm
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.embeddings.embeddings import Embeddings
 
@@ -107,8 +106,7 @@ class HuggingFaceEmbedder(Embeddings):
         logger.info(f"Embedding {n} documents with model '{self.model_name}'")
         embeddings: List[List[float]] = []
 
-        # tqdm progress bar over individual texts
-        for idx, txt in enumerate(tqdm(texts, desc="Embedding documents", unit="doc")):
+        for idx, txt in enumerate(texts):
             try:
                 # call single-doc embedding for progress tracking;
                 # HuggingFaceEmbeddings.embed_documents returns a list
