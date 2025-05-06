@@ -10,7 +10,7 @@ from langchain_community.docstore.in_memory import InMemoryDocstore
 from langchain_community.vectorstores import FAISS
 from langchain_community.vectorstores.utils import DistanceStrategy
 from langchain_core.documents import Document
-from tqdm.auto import tqdm
+
 from src.utils.metrics import track_metrics
 from config.settings import settings
 
@@ -118,8 +118,7 @@ class VectorStoreManager:
             if ids and len(ids) != len(documents):
                 raise ValueError("Length of ids must match documents")
             ids = ids or [str(uuid4()) for _ in documents]
-            for doc, uid in tqdm(zip(documents, ids), total=len(documents), desc="Adding documents"):
-                self.store.add_documents(documents=[doc], ids=[uid])
+            self.store.add_documents(documents=documents, ids=ids)
             logger.info(f"Added {len(documents)} documents to '{self.index_name}'")
             return ids
         except Exception as e:

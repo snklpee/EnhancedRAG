@@ -106,15 +106,12 @@ class HuggingFaceEmbedder(Embeddings):
         logger.info(f"Embedding {n} documents with model '{self.model_name}'")
         embeddings: List[List[float]] = []
 
-        for idx, txt in enumerate(texts):
-            try:
-                # call single-doc embedding for progress tracking;
-                # HuggingFaceEmbeddings.embed_documents returns a list
-                vec = self._client.embed_documents([txt])[0]
-                embeddings.append(vec)
-            except Exception:
-                logger.exception(f"Failed to embed document at index {idx}")
-                raise
+        try:
+            #
+            embeddings = self._client.embed_documents(texts=texts)
+        except Exception:
+            logger.exception(f"Failed to embed documents")
+            raise
 
         logger.info(f"Successfully embedded {len(embeddings)}/{n} documents")
         return embeddings
