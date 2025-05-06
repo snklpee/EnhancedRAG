@@ -4,7 +4,7 @@ from typing import List, Sequence
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.embeddings.embeddings import Embeddings
 from src.utils.metrics import track_metrics
-from src.ingestion.chunker import DocumentChunker
+from src.ingestion.DocumentChunker import DocumentChunker
 
 
 class HuggingFaceEmbedder(Embeddings):

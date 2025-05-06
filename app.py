@@ -9,8 +9,8 @@ from typing import Dict, List, Tuple
 
 from langchain_core.documents import Document
 
-from src.ingestion.loader import DocumentLoader
-from src.ingestion.chunker import DocumentChunker
+from src.ingestion.DocumentLoader import DocumentLoader
+from src.ingestion.DocumentChunker import DocumentChunker
 from src.ingestion.HuggingFaceEmbedder import HuggingFaceEmbedder
 from src.ingestion.VectorStoreManager import VectorStoreManager
 
