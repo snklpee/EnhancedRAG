@@ -1,6 +1,6 @@
 import logging
 from typing import List, Tuple
-from tqdm.auto import tqdm
+
 
 from langchain_core.documents import Document
 from src.generation.HuggingFaceLLM import HuggingFaceLLM
@@ -48,7 +48,7 @@ class FusionSummarizer:
         Summarize each prompt and its associated document chunks, with a progress bar.
 
         For each (prompt_text, chunks) tuple, calls the fusion LLM to generate
-        a summary and formats it as markdown. A tqdm progress bar tracks overall progress.
+        a summary and formats it as markdown.
 
         Args:
             prompt_chunks (List[Tuple[str, List[Document]]]):
@@ -68,9 +68,7 @@ class FusionSummarizer:
         summaries: List[str] = []
         total = len(prompt_chunks)
         logger.info(f"Starting summarization of {total} prompts...")
-        for idx, (prompt_text, chunks) in enumerate(
-            tqdm(prompt_chunks, desc="Summarizing prompts", unit="prompt"),
-            start=1
+        for idx, (prompt_text, chunks) in enumerate(prompt_chunks, start=1
         ):
             try:
                 # Build context from chunks

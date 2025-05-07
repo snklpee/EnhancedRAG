@@ -1,6 +1,5 @@
 import logging
 from typing import List
-from tqdm.auto import tqdm
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -97,7 +96,7 @@ class PromptAugmentor:
         prompts: List[str] = []
 
         try:
-            for i in tqdm(range(synthetic_count), desc="Generating prompts", unit="prompt"):
+            for i in range(synthetic_count):
                 system_content = self._build_system_message(prompts)
                 logger.info("Requesting synthetic prompt %d/%d", i + 1, synthetic_count)
 
