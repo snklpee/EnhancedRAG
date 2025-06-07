@@ -9,3 +9,4 @@ pydantic-settings
 langchain-huggingface
 huggingface_hub
 faiss-cpu
+transformers
