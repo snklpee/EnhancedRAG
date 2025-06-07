@@ -9,6 +9,7 @@ context/
 
 # Jupyter and test files
 test.ipynb
+test2.ipynb
 test.py
 
 # Ignore all __pycache__ directories and their contents, wherever they are

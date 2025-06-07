@@ -203,7 +203,7 @@ with gr.Blocks(title="Enhanced RAG App") as demo:
                 user_query = gr.Textbox(label="User Query")
                 run_btn = gr.Button("Run Generation")
                 
-                final_out      = gr.Markdown(label="Final Answer", show_label=True)
+                final_out = gr.Markdown(label="Final Answer", show_label=True)
 
                 with gr.Accordion("Intermediate Steps", open=False):
                     prompts_out = gr.Textbox(label="Augmented Prompts", lines=4)
