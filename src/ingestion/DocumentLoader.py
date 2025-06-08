@@ -22,21 +22,28 @@ logger.setLevel(logging.INFO)
 
 class DocumentLoader:
     """
-    Handles discovery and loading of documents from a centralized context directory.
+    Handles discovery and loading of documents from a base context directory.
 
     Uses langchain_community loaders under the hood and tracks:
       - Number of inputs/outputs via metrics decorator.
       - Errors via structured logging.
 
     Attributes:
-        base_context_dir (Path): Root directory under which all subdirs reside.
+        base_context_dir (Path):
+            Root directory containing the documents. Defaults to
+            ``settings.CONTEXT_DIR`` if not specified when constructing
+            the loader.
     """
 
-    def __init__(self):
+    def __init__(self, base_context_dir: Optional[str | Path] = None):
         """
-        Initialize the loader, setting base_context_dir from settings.CONTEXT_DIR.
+        Initialize the loader with an optional base context directory.
+
+        Args:
+            base_context_dir: Directory containing the source documents. If
+                ``None`` (default), ``settings.CONTEXT_DIR`` is used.
         """
-        self.base_context_dir = Path(settings.CONTEXT_DIR)
+        self.base_context_dir = Path(base_context_dir or settings.CONTEXT_DIR)
 
     @track_metrics(lambda filenames: len(filenames), target="outputs")
     def list_filenames(
