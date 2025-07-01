@@ -113,7 +113,7 @@ class DocumentLoader:
         all_docs: List[Document] = []
         # Iterate patterns with a progress bar
         for pattern in patterns:
-            ext = Path(pattern).suffix.lower()
+            ext: str = Path(pattern).suffix.lower()
 
             try:
                 if ext == ".pdf":

@@ -1,5 +1,6 @@
-# app.py
-
+# app.py 
+# Gradio App for Enhanced RAG 
+from ast import Raise
 import os
 import shutil
 import gradio as gr
@@ -21,11 +22,11 @@ from config.settings import settings
 # ——— Singletons & Globals ———
 # Initializing LLMs can be time-consuming, so it's good practice to do it once.
 try:
-    pa_llm = HuggingFaceLLM(model_name="meta-llama/Llama-3.1-8B-Instruct")
-    fusion_llm = HuggingFaceLLM(model_name="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
+    pa_llm: HuggingFaceLLM = HuggingFaceLLM(model_name="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
+    fusion_llm: HuggingFaceLLM = HuggingFaceLLM(model_name="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
 except Exception as e:
     print(f"Error initializing LLMs: {e}")
-    pa_llm, fusion_llm = None, None
+
 
 _final_llm_cache: Dict[str, HuggingFaceLLM] = {}
 loader = DocumentLoader()
@@ -174,6 +175,7 @@ except Exception as e:
     print(f"Could not fetch embedding models from HuggingFace: {e}")
     embedding_models = ["sentence-transformers/all-MiniLM-L6-v2"] # Fallback
 
+# A static list of models tested to be working (from HF inference endpoint)
 hf_llms = [
     "meta-llama/Llama-3.1-8B-Instruct",
     "mistralai/Mistral-7B-Instruct-v0.3",
@@ -207,7 +209,7 @@ with gr.Blocks(title="Enhanced RAG App", theme=gr.themes.Soft()) as demo:
             with gr.Column(scale=2):
                 gr.Markdown("#### Step 2: Configure & Run Ingestion")
                 embed_model = gr.Dropdown(label="Embedding Model", choices=embedding_models,
-                                          value=embedding_models[0] if embedding_models else "sentence-transformers/all-MiniLM-L6-v2")
+                                          value="sentence-transformers/all-MiniLM-L6-v2")
                 with gr.Row():
                     chunk_size = gr.Number(label="Chunk Size", value=300, precision=0)
                     chunk_overlap = gr.Number(label="Chunk Overlap", value=80, precision=0)

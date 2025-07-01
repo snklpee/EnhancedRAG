@@ -6,9 +6,9 @@ from pathlib import Path
 class Settings(BaseSettings):
     # directories
     CONTEXT_DIR: str = Field("context", env="CONTEXT_DIR")
-    FAISS_INDEXES: str = ("context/faiss_indexes", "FAISS_INDEXES")
-    
-    # OPENAI_API_KEY: SecretStr = Field(..., env="OPENAI_API_KEY")
+    FAISS_INDEXES: str = Field("context/faiss_indexes", env="FAISS_INDEXES")
+
+    # generation/embedding APIs
     HF_TOKEN: SecretStr = Field(..., env="HF_TOKEN")
 
     class Config:

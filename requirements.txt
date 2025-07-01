@@ -1,5 +1,4 @@
 gradio
-langchain-openai
 langchain-text-splitters
 sentence-transformers
 langchain-community
