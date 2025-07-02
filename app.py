@@ -1,284 +1,289 @@
-# app.py 
-# Gradio App for Enhanced RAG 
-from ast import Raise
-import os
-import shutil
+# new_gradio_app.py
+
 import gradio as gr
-from typing import Dict, List, Tuple
-
-from src.ingestion.DocumentLoader import DocumentLoader
-from src.ingestion.DocumentChunker import DocumentChunker
-from src.ingestion.HuggingFaceEmbedder import HuggingFaceEmbedder
-from src.ingestion.VectorStoreManager import VectorStoreManager
-
-from src.generation.PromptAugmentor import PromptAugmentor
-from src.generation.HuggingFaceLLM import HuggingFaceLLM
+import time
+import random
 from src.generation.Prompts import Prompts
-from src.generation.Fusion import FusionSummarizer
 
-from src.utils.ModelLister import HuggingFaceModelLister
-from config.settings import settings
-
-# ——— Singletons & Globals ———
-# Initializing LLMs can be time-consuming, so it's good practice to do it once.
-try:
-    pa_llm: HuggingFaceLLM = HuggingFaceLLM(model_name="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
-    fusion_llm: HuggingFaceLLM = HuggingFaceLLM(model_name="nvidia/Llama-3.1-Nemotron-70B-Instruct-HF")
-except Exception as e:
-    print(f"Error initializing LLMs: {e}")
-
-
-_final_llm_cache: Dict[str, HuggingFaceLLM] = {}
-loader = DocumentLoader()
-augmentor = PromptAugmentor(client=pa_llm)
-
-def get_final_llm(model_name: str) -> HuggingFaceLLM:
-    """Caches and returns a HuggingFaceLLM instance for the final answer generation."""
-    if model_name not in _final_llm_cache:
-        print(f"Creating new LLM instance for: {model_name}")
-        _final_llm_cache[model_name] = HuggingFaceLLM(model_name=model_name)
-    return _final_llm_cache[model_name]
-
-# ——— Core Application Logic ———
-
-def handle_upload(files: list, index_name: str) -> Tuple[List[List], str]:
-    """
-    This function saves uploaded files to a directory
-    based on the index_name, allowing the ingestion process to find them.
-    """
-    if not files:
-        return [], "No files uploaded."
-    if not index_name or not index_name.strip():
-        # Enforce that an index name is provided.
-        raise gr.Error("Index Name cannot be empty.")
-
-    # Construct the target directory path and create it if it doesn't exist.
-    target_dir = os.path.join(settings.CONTEXT_DIR, index_name)
-    os.makedirs(target_dir, exist_ok=True)
-
-    # Copy each uploaded file from its temporary location to the target directory.
-    for file_obj in files:
-        shutil.copy(file_obj.name, target_dir)
-
-    # Prepare data for the UI DataFrame.
-    df_data = [[i + 1, os.path.basename(f.name)] for i, f in enumerate(files)]
-    
-    return df_data, f"Uploaded {len(files)} files to index '{index_name}'."
-
-def handle_cleanup(index_name: str) -> Tuple[str, list]:
-    """
-    FIX: Provides clearer feedback and cleans up the UI by clearing the file list.
-    """
-    if not index_name or not index_name.strip():
-        return "Index Name is empty. Nothing to clear.", []
-        
-    target_dir = os.path.join(settings.CONTEXT_DIR, index_name)
-    if os.path.exists(target_dir):
-        try:
-            shutil.rmtree(target_dir)
-            # UX Improvement: Also clear the file list in the UI.
-            return f"Cleared all files under index '{index_name}'.", []
-        except OSError as e:
-            return f"Error clearing files: {e}", []
-    else:
-        return f"Index '{index_name}' directory does not exist.", []
-
-def streaming_ingest(chunk_size, chunk_overlap, embed_model, index_name, ingest_state):
-    """
-    Performs the document ingestion process in a streaming fashion for better UI feedback.
-    This function should now work correctly as handle_upload places files in the expected location.
-    """
-    # 0% → List files
-    yield ("...", "", "", "Listing files...")
-    files = loader.list_filenames(index_name)
-    if not files:
-        raise gr.Error(f"No files found for index '{index_name}'. Please upload files first.")
-    
-    # 25% → Load documents
-    yield (str(len(files)), "...", "", "Loading documents...")
-    docs = loader.load_documents(subdir=index_name, file_names=files)
-    
-    # 50% → Chunk documents
-    yield (str(len(files)), str(len(docs)), "...", "Chunking documents...")
-    chunker = DocumentChunker(
-        hf_embedding_model=embed_model,
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap
-    )
-    chunks = chunker.chunk_documents(docs)
-    
-    # 75% → Build vector index
-    yield (str(len(files)), str(len(docs)), str(len(chunks)), "Embedding and indexing...")
-    embeddings = HuggingFaceEmbedder(embed_model)
-    vsm = VectorStoreManager(embedding_function=embeddings, index_name=index_name)
-    vsm.create_index()
-    vsm.add_documents(chunks)
-    
-    # 100% → Done
-    # Store the vector store manager in the session state for the generation tab.
-    ingest_state["vsm"] = vsm
-    ingest_state["embedder"] = embeddings
-    yield (str(len(files)), str(len(docs)), str(len(chunks)), "Ingestion Complete!")
-
-
-def streaming_generate(num_prompts: int, top_k: int, llm_model: str, temperature: float,
-                       max_output_tokens: int, sys_prompt_fuse: str,
-                       sys_prompt_final: str, show_chunks: int, query: str, ingest_state):
-    """
-    Generates an answer by augmenting prompts, retrieving context, and synthesizing a final response.
-    """
-    vsm = ingest_state.get("vsm")
-    if vsm is None:
-        raise gr.Error("Ingestion not completed or failed. Please run ingestion first.")
-
-    # 1) Generate prompts
-    yield ("Generating prompts...", "", "", "")
-    prompts = augmentor.generate(query=query, synthetic_count=num_prompts)
-    prompts_out = "\n\n".join(f"- {p}" for p in prompts)
-    
-    # 2) Retrieve chunks for each prompt
-    yield (prompts_out, "Retrieving documents...", "", "")
-    retriever = vsm.retriever(search_type="similarity", search_kwargs={"k": top_k})
-    retrieved_out = ""
-    prompt_chunks = []
-    for idx, p in enumerate(prompts, start=1):
-        docs = retriever.invoke(p)
-        prompt_chunks.append((p, docs))
-        # Format retrieved chunks for display
-        chunk_texts = [f"  - Doc: {os.path.basename(doc.metadata.get('source', 'N/A'))}, Content: {doc.page_content[:100]}..." for doc in docs[:show_chunks]]
-        retrieved_out += f"**Prompt {idx}:** `{p}`\n" + "\n".join(chunk_texts) + "\n\n"
-        yield (prompts_out, retrieved_out, "", "")
-
-    # 3) Generate intermediate summaries
-    yield (prompts_out, retrieved_out, "Fusing summaries...", "")
-    summarizer = FusionSummarizer(fusion_llm=fusion_llm, sys_prompt=sys_prompt_fuse)
-    summaries = summarizer.summarize(prompt_chunks=prompt_chunks)
-    summaries_out = "\n\n".join(f"**Summary {i+1}:**\n{s}" for i, s in enumerate(summaries))
-    
-    # 4) Generate final answer
-    yield (prompts_out, retrieved_out, summaries_out, "Generating final answer...")
-    final_llm = get_final_llm(llm_model)
-    final_out = final_llm.get_answer(
-        sys_prompt=sys_prompt_final,
-        user_prompt="\n".join(summaries),
-        max_tokens=max_output_tokens,
-        temperature=temperature
-    )
-    yield (prompts_out, retrieved_out, summaries_out, final_out)
-
-
-# ——— Build UI ———
-try:
-    lister = HuggingFaceModelLister()
-    embedding_models = lister.list_models(task="sentence-similarity", filter="feature-extraction")
-except Exception as e:
-    print(f"Could not fetch embedding models from HuggingFace: {e}")
-    embedding_models = ["sentence-transformers/all-MiniLM-L6-v2"] # Fallback
-
-# A static list of models tested to be working (from HF inference endpoint)
+# Dummy LLM models and embedding models (for dropdowns)
 hf_llms = [
     "meta-llama/Llama-3.1-8B-Instruct",
+    "meta-llama/Llama-3.3-70B-Instruct",
+    "deepseek-ai/DeepSeek-R1-Distill-Qwen-32B",
     "mistralai/Mistral-7B-Instruct-v0.3",
-    "deepseek-ai/DeepSeek-Coder-V2-Lite-Instruct",
-    "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF",
-    "meta-llama/Llama-3.1-70B-Instruct"
+    "nvidia/Llama-3.1-Nemotron-70B-Instruct-HF"
 ]
 
-with gr.Blocks(title="Enhanced RAG App", theme=gr.themes.Soft()) as demo:
-    # State object to hold session data like the vector store manager.
-    session_state = gr.State({})
+embedding_models = [
+    "BAAI/bge-small-en-v1.5",
+    "sentence-transformers/all-MiniLM-L6-v2",
+    "hkunlp/instructor-large"
+]
 
-    gr.Markdown("## Enhanced RAG: Ingestion & Generation")
+# Dummy knowledge graph endpoints
+knowledge_graph_endpoints = [
+    "Neo4j Instance 1 (Production)",
+    "Neo4j Instance 2 (Staging)",
+    "Neo4j Localhost (Development)"
+]
 
-    with gr.Tab("1. Ingestion"):
-        with gr.Row():
-            with gr.Column(scale=3):
-                gr.Markdown("#### Step 1: Upload Documents")
-                index_name = gr.Textbox(label="Create a New Index Name", value="my-first-index")
-                file_input = gr.File(label="Upload Documents", file_count="multiple",
-                                     file_types=[".pdf", ".txt", ".md", ".py", ".json", ".html"])
-                
-                with gr.Row():
-                    upload_btn = gr.Button("Upload Files", variant="primary")
-                    cleanup_btn = gr.Button("Clear Index Files", variant="stop")
+# --- Dummy Streaming Generation for Full Hybrid RAG ---
+def streaming_generate_full(num_prompts: int, top_k: int, llm_model: str, temperature: float,
+                            max_output_tokens: int, sys_prompt_fuse: str,
+                            sys_prompt_final: str, show_chunks: int, query: str, kg_endpoint: str):
+    start_time = time.time()
 
-                upload_status = gr.Textbox(label="Upload Status", interactive=False)
-                files_df = gr.Dataframe(headers=["File Name"], datatype=["str"],
-                                        interactive=False, label="Uploaded Files in Index")
+    # Hardcoded Augmented Prompts
+    hardcoded_prompts = [
+        "Define a knowledge graph database, detailing its core components and architectural principles.",
+        "Explain how knowledge graph databases differ from traditional relational or NoSQL databases.",
+        "What are the primary use cases and advantages of implementing a knowledge graph database?",
+        "Describe Neo4j's unique features and how it implements the property graph model.",
+        "Compare Neo4j's query language (Cypher) with other graph query languages or methods used by competitors.",
+        "Analyze Neo4j's performance characteristics, scalability, and security features in the context of enterprise deployments.",
+        "Identify Neo4j's main competitors in the knowledge graph database market and their respective strengths and weaknesses.",
+        "Summarize the key differentiators and competitive advantages that Neo4j offers over alternative graph database solutions.",
+    ]
+    prompts_out = "\n\n".join(hardcoded_prompts[:num_prompts]) # Display only up to num_prompts
+    yield (prompts_out, "", "", "", "", "Calculating...", "Calculating...")
+    time.sleep(random.uniform(9, 17)) # Simulate processing time
 
-            with gr.Column(scale=2):
-                gr.Markdown("#### Step 2: Configure & Run Ingestion")
-                embed_model = gr.Dropdown(label="Embedding Model", choices=embedding_models,
-                                          value="sentence-transformers/all-MiniLM-L6-v2")
-                with gr.Row():
-                    chunk_size = gr.Number(label="Chunk Size", value=300, precision=0)
-                    chunk_overlap = gr.Number(label="Chunk Overlap", value=80, precision=0)
+    # Hardcoded Retrieved Chunks
+    hardcoded_chunks = [
+        ["A knowledge graph database fundamentally represents data as a network of interconnected entities (nodes) and relationships (edges), storing semantic information about how these entities relate.",
+         "Key components include nodes for entities, relationships for connections, and properties to describe both, enabling a highly intuitive and flexible data model."],
+        ["Unlike relational databases that rely on rigid schemas and joins, knowledge graphs excel at handling complex, evolving relationships, allowing for flexible data exploration without predefined table structures.",
+         "Compared to typical NoSQL document or key-value stores, graph databases explicitly model relationships as first-class citizens, making traversal and pattern matching highly efficient."],
+        ["Primary use cases include fraud detection, recommendation engines, master data management, and contextual search, where understanding complex relationships is critical.",
+         "Advantages include enhanced data interconnectedness, agile schema evolution, faster complex query execution, and improved AI/ML model training due to richer context."],
+        ["Neo4j is a native graph database implementing the labeled property graph model, where nodes and relationships can have labels and properties, enabling highly expressive data representation.",
+         "Its architecture is optimized for graph traversals, ensuring high performance even on deeply connected datasets, a hallmark of its design philosophy."],
+        ["Cypher, Neo4j's declarative query language, is known for its readability and expressive power, allowing users to describe visual graph patterns in a highly intuitive syntax.",
+         "Competitors might use SPARQL (for RDF graphs), Gremlin (for TinkerPop-compatible graphs), or SQL extensions, each with varying levels of expressiveness and learning curves compared to Cypher."],
+        ["Neo4j boasts strong performance for connected data queries, often outperforming other database types by orders of magnitude for pathfinding and relationship-intensive operations.",
+         "It offers robust clustering and replication for scalability and high availability, alongside enterprise-grade security features like role-based access control and encryption."],
+        ["Key competitors include Amazon Neptune (supporting Gremlin and SPARQL), ArangoDB (multi-model with graph capabilities), and Microsoft Azure Cosmos DB (with a Gremlin API).",
+         "Each competitor has different strengths, such as integration with specific cloud ecosystems, multi-model flexibility, or serverless deployment options."],
+        ["Neo4j's deep focus on the property graph model, combined with the mature Cypher language and a vibrant developer ecosystem, provides a compelling offering.",
+         "Its strong community support, extensive documentation, and proven track record in complex enterprise solutions often set it apart in the dedicated graph database space."]
+    ]
 
-                ingest_btn = gr.Button("Run Ingestion", variant="primary")
-                ingestion_status = gr.Textbox(label="Ingestion Progress", interactive=False)
-                
-                with gr.Accordion(label="Ingestion Stats", open=False):
-                    total_files = gr.Textbox(label="Files Found", interactive=False)
-                    total_docs = gr.Textbox(label="Documents Loaded", interactive=False)
-                    total_chunks = gr.Textbox(label="Chunks Created", interactive=False)
+    retrieved_out = ""
+    for i in range(min(num_prompts, len(hardcoded_chunks))): # Iterate up to num_prompts or available chunks
+        retrieved_out += f"Prompt {i+1} → Chunks:\n"
+        for j in range(min(show_chunks, len(hardcoded_chunks[i]))): # Display up to show_chunks
+            retrieved_out += f"- {hardcoded_chunks[i][j]}\n"
+        retrieved_out += "\n"
+    yield (prompts_out, retrieved_out, "", "", "", "Calculating...", "Calculating...")
 
-        # Link UI components to the backend functions
-        upload_btn.click(
-            fn=handle_upload,
-            inputs=[file_input, index_name],
-            outputs=[files_df, upload_status]
-        )
+    time.sleep(random.uniform(15, 30)) # Simulate processing time
 
-        cleanup_btn.click(
-            fn=handle_cleanup,
-            inputs=[index_name],
-            # UX Improvement: Clears both status and the file list.
-            outputs=[upload_status, files_df]
-        )
+    # Hardcoded Summaries
+    hardcoded_summaries = [
+        "A knowledge graph database defines data by nodes and relationships, with properties, enabling semantic connections.",
+        "Unlike traditional databases, knowledge graphs prioritize relationships for flexible, complex data navigation.",
+        "They are crucial for use cases like fraud detection and offer advantages in data interconnectedness and agile schemas.",
+        "Neo4j uses a native property graph model, optimizing its architecture for efficient graph traversals.",
+        "Cypher is Neo4j's intuitive query language, differing from SPARQL or Gremlin used by other graph systems.",
+        "Neo4j is performance-optimized for connected data, offering robust scalability and enterprise security features.",
+        "Competitors like Amazon Neptune and ArangoDB offer different features, often tied to cloud platforms or multi-model support.",
+        "Neo4j distinguishes itself with its dedicated property graph focus, Cypher, and strong ecosystem for complex enterprise needs."
+    ]
+    summaries_out = "\n\n".join(hardcoded_summaries[:num_prompts]) # Display only up to num_prompts
+    yield (prompts_out, retrieved_out, summaries_out, "", "", "Calculating...", "Calculating...")
 
-        ingest_progress_outputs = [total_files, total_docs, total_chunks, ingestion_status]
-        ingest_btn.click(
-            fn=streaming_ingest,
-            inputs=[chunk_size, chunk_overlap, embed_model, index_name, session_state],
-            outputs=ingest_progress_outputs
-        )
+    time.sleep(random.uniform(1, 4)) # Simulate processing time
 
-    with gr.Tab("2. Generation"):
+    # Hardcoded Knowledge Graph Response
+    kg_response_out = f"""Knowledge Graph Response for '{query}' from {kg_endpoint}:
+Entities found: Knowledge Graph Database, Neo4j, Property Graph Model, Cypher, Relational Databases, NoSQL Databases, Amazon Neptune, ArangoDB.
+Relationships: `Knowledge Graph Database` --[HAS_CHARACTERISTIC]-> `Nodes`, `Knowledge Graph Database` --[HAS_CHARACTERISTIC]-> `Relationships`, `Neo4j` --[IMPLEMENTS]-> `Property Graph Model`, `Neo4j` --[USES_QUERY_LANGUAGE]-> `Cypher`, `Knowledge Graph Database` --[DIFFER_FROM]-> `Relational Databases`, `Knowledge Graph Database` --[DIFFER_FROM]-> `NoSQL Databases`, `Neo4j` --[COMPETES_WITH]-> `Amazon Neptune`, `Neo4j` --[COMPETES_WITH]-> `ArangoDB`.
+Relevant facts: Knowledge graphs emphasize relationships as first-class citizens. Neo4j's Cypher is a declarative graph query language. Key benefits of KGs include improved contextual search and recommendation. Neo4j is known for its traversal performance."""
+    yield (prompts_out, retrieved_out, summaries_out, kg_response_out, "", "Calculating...", "Calculating...")
+
+    time.sleep(random.uniform(5, 14)) # Simulate processing time
+
+    # Hardcoded Final Answer
+    final_out = f"""A **knowledge graph database** is a specialized type of database that stores data as a network of interconnected entities (nodes) and their relationships (edges), enriched with properties. This model intuitively represents complex, real-world data and its underlying semantics, making it highly effective for applications requiring deep contextual understanding and relationship analysis, such as fraud detection, recommendation engines, and master data management.
+
+**Neo4j** stands out among its competitors primarily due to its unwavering focus on the **property graph model** as its native data structure, which provides superior performance for connected data traversals. Its intuitive and declarative query language, **Cypher**, allows users to express complex graph patterns with remarkable clarity, simplifying development. While competitors like Amazon Neptune (which supports Gremlin and SPARQL) and multi-model databases like ArangoDB offer various strengths, Neo4j's maturity, robust ecosystem, strong community support, and enterprise-grade features (including scalability, high availability, and security) often position it as a leader for dedicated, high-performance graph database solutions. Its commitment to the graph paradigm, coupled with extensive tooling and a proven track record, gives Neo4j a significant competitive advantage."""
+    yield (prompts_out, retrieved_out, summaries_out, kg_response_out, final_out, "Calculating...", "Calculating...")
+
+    # Calculate LLM Calls and Time Taken
+    total_llm_calls = (3 * num_prompts) + 1
+    time_taken = f"{time.time() - start_time:.2f} seconds"
+
+    yield (prompts_out, retrieved_out, summaries_out, kg_response_out, final_out, str(total_llm_calls), time_taken)
+
+
+# --- Dummy Streaming Generation for Fast Hybrid RAG ---
+def streaming_generate_fast(num_prompts: int, top_k: int, llm_model: str, temperature: float,
+                            max_output_tokens: int, sys_prompt_fuse: str,
+                            sys_prompt_final: str, show_chunks: int, query: str, kg_endpoint: str):
+    start_time = time.time()
+
+    # Hardcoded Augmented Prompts
+    hardcoded_prompts = [
+        "Define a knowledge graph database, detailing its core components and architectural principles.",
+        "Explain how knowledge graph databases differ from traditional relational or NoSQL databases.",
+        "What are the primary use cases and advantages of implementing a knowledge graph database?",
+        "Describe Neo4j's unique features and how it implements the property graph model.",
+        "Compare Neo4j's query language (Cypher) with other graph query languages or methods used by competitors.",
+        "Analyze Neo4j's performance characteristics, scalability, and security features in the context of enterprise deployments.",
+        "Identify Neo4j's main competitors in the knowledge graph database market and their respective strengths and weaknesses.",
+        "Summarize the key differentiators and competitive advantages that Neo4j offers over alternative graph database solutions.",
+    ]
+    prompts_out = "\n\n".join(hardcoded_prompts[:num_prompts])
+    yield (prompts_out, "", "", "Calculating...", "Calculating...")
+    time.sleep(random.uniform(2, 4)) # Simulate processing time
+
+    # Hardcoded Retrieved Chunks (includes KG response for Fast RAG)
+    hardcoded_chunks = [
+        ["A knowledge graph database fundamentally represents data as a network of interconnected entities (nodes) and relationships (edges), storing semantic information about how these entities relate.",
+         "Key components include nodes for entities, relationships for connections, and properties to describe both, enabling a highly intuitive and flexible data model."],
+        ["Unlike relational databases that rely on rigid schemas and joins, knowledge graphs excel at handling complex, evolving relationships, allowing for flexible data exploration without predefined table structures.",
+         "Compared to typical NoSQL document or key-value stores, graph databases explicitly model relationships as first-class citizens, making traversal and pattern matching highly efficient."],
+        ["Primary use cases include fraud detection, recommendation engines, master data management, and contextual search, where understanding complex relationships is critical.",
+         "Advantages include enhanced data interconnectedness, agile schema evolution, faster complex query execution, and improved AI/ML model training due to richer context."],
+        ["Neo4j is a native graph database implementing the labeled property graph model, where nodes and relationships can have labels and properties, enabling highly expressive data representation.",
+         "Its architecture is optimized for graph traversals, ensuring high performance even on deeply connected datasets, a hallmark of its design philosophy."],
+        ["Cypher, Neo4j's declarative query language, is known for its readability and expressive power, allowing users to describe visual graph patterns in a highly intuitive syntax.",
+         "Competitors might use SPARQL (for RDF graphs), Gremlin (for TinkerPop-compatible graphs), or SQL extensions, each with varying levels of expressiveness and learning curves compared to Cypher."],
+        ["Neo4j boasts strong performance for connected data queries, often outperforming other database types by orders of magnitude for pathfinding and relationship-intensive operations.",
+         "It offers robust clustering and replication for scalability and high availability, alongside enterprise-grade security features like role-based access control and encryption."],
+        ["Key competitors include Amazon Neptune (supporting Gremlin and SPARQL), ArangoDB (multi-model with graph capabilities), and Microsoft Azure Cosmos DB (with a Gremlin API).",
+         "Each competitor has different strengths, such as integration with specific cloud ecosystems, multi-model flexibility, or serverless deployment options."],
+        ["Neo4j's deep focus on the property graph model, combined with the mature Cypher language and a vibrant developer ecosystem, provides a compelling offering.",
+         "Its strong community support, extensive documentation, and proven track record in complex enterprise solutions often set it apart in the dedicated graph database space."]
+    ]
+
+    retrieved_out = ""
+    for i in range(min(num_prompts, len(hardcoded_chunks))):
+        retrieved_out += f"Prompt {i+1} → Chunks:\n"
+        for j in range(min(show_chunks, len(hardcoded_chunks[i]))):
+            retrieved_out += f"- {hardcoded_chunks[i][j]}\n"
+        retrieved_out += "\n"
+
+    # Hardcoded Knowledge Graph Response (integrated into retrieved chunks for Fast RAG)
+    kg_response_in_chunks = f"""Knowledge Graph Response for '{query}' from {kg_endpoint} (Fast RAG):
+Entities found: Knowledge Graph, Neo4j, Cypher, Graph Databases.
+Relevant connections: `Knowledge Graph` --[DEFINES]-> `Relationships`, `Neo4j` --[FEATURES]-> `Cypher`, `Neo4j` --[COMPETES_IN]-> `Graph Databases Market`.
+Summary of graph data for all prompts: Knowledge graphs model interconnected data; Neo4j is a leading graph database with its native property graph and Cypher query language, offering competitive advantages in performance for connected data. Key competitors exist, but Neo4j maintains strong market position through focused innovation and ecosystem."""
+    retrieved_out += f"\n---\nKnowledge Graph Integration:\n{kg_response_in_chunks}\n---"
+    yield (prompts_out, retrieved_out, "", "Calculating...", "Calculating...")
+    time.sleep(random.uniform(1, 3)) # Simulate processing time
+
+    # Hardcoded Final Answer
+    final_out = f"""For '{query}', the **Fast Hybrid RAG** approach quickly synthesizes insights by directly integrating relevant knowledge graph data with retrieved document chunks. This streamlined process prioritizes efficiency, delivering a concise yet comprehensive answer focused on the most pertinent information about knowledge graph databases and Neo4j's competitive advantages."""
+    yield (prompts_out, retrieved_out, final_out, "Calculating...", "Calculating...")
+
+    # Calculate LLM Calls and Time Taken
+    total_llm_calls = num_prompts + 2
+    time_taken = f"{time.time() - start_time:.2f} seconds" # Using actual time difference
+
+    yield (prompts_out, retrieved_out, final_out, str(total_llm_calls), time_taken)
+
+
+# --- Build UI ---
+with gr.Blocks(title="Hybrid RAG App") as demo:
+    gr.Markdown("## Hybrid RAG: Full Hybrid RAG vs. Fast Hybrid RAG")
+
+    with gr.Tab("Full Hybrid RAG"):
         with gr.Row():
             with gr.Column(scale=1):
-                gr.Markdown("#### Step 3: Configure Generation")
-                llm_model = gr.Dropdown(label="Final LLM Model", choices=hf_llms, value=hf_llms[0])
-                temperature = gr.Slider(0.0, 1.0, value=0.7, step=0.1, label="Temperature")
-                
-                with gr.Row():
-                    max_output_tokens = gr.Number(label="Max Tokens", value=1024, precision=0)
-                    num_prompts = gr.Number(label="# Prompts", value=3, precision=0)
-                    
-                with gr.Row():
-                    top_k = gr.Number(label="Top-K Chunks", value=3, precision=0)
-                    show_chunks = gr.Number(label="Display Chunks", value=2, precision=0)
-                    
-                with gr.Accordion("Advanced: System Prompts", open=False):
-                    sys_fuse = gr.Textbox(label="Merge Fusion Prompt", value=Prompts.MERGE_FUSION_SYS_PROMPT, lines=5)
-                    sys_final = gr.Textbox(label="Final Answer Prompt", value=Prompts.FINAL_ANS_SYS_PROMPT, lines=5)
+                llm_model_full = gr.Dropdown(label="LLM Model", choices=hf_llms, value=hf_llms[-1])
+                temperature_full = gr.Slider(0.0, 1.0, value=0.7, step=0.1)
 
-            with gr.Column(scale=2):
-                gr.Markdown("#### Step 4: Run Query")
-                user_query = gr.Textbox(label="Your Question", lines=3)
-                run_btn = gr.Button("Generate Answer", variant="primary")
-                
-                final_out = gr.Markdown(label="Final Answer")
+                with gr.Row():
+                    max_output_tokens_full = gr.Number(label="Max Output Tokens", value=256, precision=0)
+                    # Adjusted default for num_prompts to 8 for the example
+                    num_prompts_full = gr.Number(label="Number of Prompts", value=8, precision=0)
+
+                with gr.Row():
+                    # Adjusted default for top_k to 2 to match chunk output
+                    top_k_full = gr.Number(label="Top-K Chunks", value=2, precision=0)
+                    show_chunks_full = gr.Number(label="Chunks to Display", value=2, precision=0)
+
+                kg_endpoint_full = gr.Dropdown(label="Knowledge Graph Endpoint", choices=knowledge_graph_endpoints, value=knowledge_graph_endpoints[0])
+
+                with gr.Accordion("System Prompts", open=False):
+                    sys_fuse_full = gr.Textbox(label="Merge Fusion Prompt",
+                                          value=Prompts.MERGE_FUSION_SYS_PROMPT, lines=4)
+                    sys_final_full = gr.Textbox(label="Final Answer Prompt",
+                                           value=Prompts.FINAL_ANS_SYS_PROMPT, lines=4)
+
+            with gr.Column(scale=1):
+                # Hardcoded user query
+                user_query_full = gr.Textbox(label="User Query", value="What is a knowledge graph database, and what does Neo4j bring to the table as compared to competitors?")
+                run_btn_full = gr.Button("Run Full Hybrid RAG")
+
+                final_out_full = gr.Markdown(label="Final Answer", show_label=True)
 
                 with gr.Accordion("Intermediate Steps", open=False):
-                    prompts_out = gr.Textbox(label="Generated Prompts", lines=4, interactive=False)
-                    retrieved_out = gr.Markdown(label="Retrieved Chunks")
-                    summaries_out = gr.Markdown(label="Intermediate Summaries")
+                    prompts_out_full = gr.Textbox(label="Augmented Prompts", lines=4)
+                    retrieved_out_full = gr.Textbox(label="Retrieved Chunks", lines=4)
+                    summaries_out_full = gr.Textbox(label="Summaries", lines=4)
+                    kg_response_out_full = gr.Textbox(label="Knowledge Graph Response", lines=4)
 
-        run_btn.click(
-            fn=streaming_generate,
-            inputs=[num_prompts, top_k, llm_model, temperature, max_output_tokens, 
-                    sys_fuse, sys_final, show_chunks, user_query, session_state],
-            outputs=[prompts_out, retrieved_out, summaries_out, final_out]
+                with gr.Row():
+                    total_llm_calls_full = gr.Textbox(label="Total LLM Calls ((3n+1) where n = num_prompts)", interactive=False)
+                    time_taken_full = gr.Textbox(label="Time Taken to Generate", interactive=False)
+
+
+        run_btn_full.click(
+            fn=streaming_generate_full,
+            inputs=[num_prompts_full, top_k_full, llm_model_full, temperature_full,
+                    max_output_tokens_full, sys_fuse_full, sys_final_full,
+                    show_chunks_full, user_query_full, kg_endpoint_full],
+            outputs=[prompts_out_full, retrieved_out_full, summaries_out_full, kg_response_out_full,
+                     final_out_full, total_llm_calls_full, time_taken_full]
+        )
+
+    with gr.Tab("Fast Hybrid RAG"):
+        with gr.Row():
+            with gr.Column(scale=1):
+                llm_model_fast = gr.Dropdown(label="LLM Model", choices=hf_llms, value=hf_llms[-1])
+                temperature_fast = gr.Slider(0.0, 1.0, value=0.7, step=0.1)
+
+                with gr.Row():
+                    max_output_tokens_fast = gr.Number(label="Max Output Tokens", value=256, precision=0)
+                    # Adjusted default for num_prompts to 8 for the example
+                    num_prompts_fast = gr.Number(label="Number of Prompts", value=8, precision=0)
+
+                with gr.Row():
+                    top_k_fast = gr.Number(label="Top-K Chunks", value=3, precision=0)
+                    show_chunks_fast = gr.Number(label="Chunks to Display", value=2, precision=0)
+
+                kg_endpoint_fast = gr.Dropdown(label="Knowledge Graph Endpoint", choices=knowledge_graph_endpoints, value=knowledge_graph_endpoints[2]) # Default to localhost for fast RAG
+
+                with gr.Accordion("System Prompts", open=False):
+                    sys_fuse_fast = gr.Textbox(label="Merge Fusion Prompt",
+                                          value=Prompts.MERGE_FUSION_SYS_PROMPT, lines=4)
+                    sys_final_fast = gr.Textbox(label="Final Answer Prompt",
+                                           value=Prompts.FINAL_ANS_SYS_PROMPT, lines=4)
+
+            with gr.Column(scale=1):
+                # Hardcoded user query
+                user_query_fast = gr.Textbox(label="User Query", value="What is a knowledge graph database, and what does Neo4j bring to the table as compared to competitors?")
+                run_btn_fast = gr.Button("Run Fast Hybrid RAG")
+
+                final_out_fast = gr.Markdown(label="Final Answer", show_label=True)
+
+                with gr.Accordion("Intermediate Steps", open=False):
+                    prompts_out_fast = gr.Textbox(label="Augmented Prompts", lines=4)
+                    retrieved_out_fast = gr.Textbox(label="Retrieved Chunks (includes KG response)", lines=4) # Changed label
+
+                with gr.Row():
+                    total_llm_calls_fast = gr.Textbox(label="Total LLM Calls ((n+2) where n = num_prompts)", interactive=False)
+                    time_taken_fast = gr.Textbox(label="Time Taken to Generate", interactive=False)
+
+        run_btn_fast.click(
+            fn=streaming_generate_fast,
+            inputs=[num_prompts_fast, top_k_fast, llm_model_fast, temperature_fast,
+                    max_output_tokens_fast, sys_fuse_fast, sys_final_fast,
+                    show_chunks_fast, user_query_fast, kg_endpoint_fast],
+            outputs=[prompts_out_fast, retrieved_out_fast, final_out_fast,
+                     total_llm_calls_fast, time_taken_fast]
         )
 
 if __name__ == "__main__":
